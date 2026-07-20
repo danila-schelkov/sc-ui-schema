@@ -45,7 +45,7 @@ def _validate_binding_ref(
         )
 
 
-def _register_binding_validator(ref_key: str, validator_fn):
+def _register_semantic_validator(ref_key: str, validator_fn) -> None:
     """Register a binding validator for a given schema definition ref key.
 
     Call this from your own code to extend semantic validation for new
@@ -55,11 +55,11 @@ def _register_binding_validator(ref_key: str, validator_fn):
 
         register_binding_validator("#/definitions/myBindingRef", my_validator_fn)
     """
-    _binding_validators[ref_key] = validator_fn
+    _semantic_validators[ref_key] = validator_fn
 
 
 # First argument type must always be the same as definition type
-_binding_validators: dict[str, Any] = {
+_semantic_validators: dict[str, Any] = {
     "#/definitions/bindingId": _validate_binding_ref,
 }
 
@@ -82,7 +82,15 @@ def _walk_schema_and_validate(
     if isinstance(node, list) and "items" in schema_node:
         for i, item in enumerate(node):
             item_path = f"{path}[{i}]" if path else f"[{i}]"
-            _walk_schema_and_validate(item, schema_node["items"], root, item_path, errors, schema_definitions, seen_refs.copy())
+            _walk_schema_and_validate(
+                item,
+                schema_node["items"],
+                root,
+                item_path,
+                errors,
+                schema_definitions,
+                seen_refs.copy(),
+            )
 
     # Resolve $ref — call semantic validator if registered, then
     # always recurse into the referenced definition's properties.
@@ -92,11 +100,19 @@ def _walk_schema_and_validate(
         if ref.startswith("#/definitions/"):
             def_name = ref.split("/")[-1]
             referenced = schema_definitions.get(def_name, {})
-            if ref in _binding_validators and ref not in seen_refs:
+            if ref in _semantic_validators and ref not in seen_refs:
                 seen_refs.add(ref)
-                validator = _binding_validators[ref]
+                validator = _semantic_validators[ref]
                 validator(node, referenced, root, path, errors)
-            _walk_schema_and_validate(node, referenced, root, path, errors, schema_definitions, seen_refs.copy())
+            _walk_schema_and_validate(
+                node,
+                referenced,
+                root,
+                path,
+                errors,
+                schema_definitions,
+                seen_refs.copy(),
+            )
             return  # Resolved, skip further processing of $ref schema itself
 
     if not isinstance(node, dict):
@@ -108,20 +124,44 @@ def _walk_schema_and_validate(
             child = node.get(prop_name)
             if child is not None:
                 child_path = f"{path}.{prop_name}" if path else prop_name
-                _walk_schema_and_validate(child, prop_schema, root, child_path, errors, schema_definitions, seen_refs.copy())
+                _walk_schema_and_validate(
+                    child,
+                    prop_schema,
+                    root,
+                    child_path,
+                    errors,
+                    schema_definitions,
+                    seen_refs.copy(),
+                )
 
     if "additionalProperties" in schema_node:
         for key, child in node.items():
             if key.startswith("$"):
                 continue
             child_path = f"{path}.{key}" if path else key
-            _walk_schema_and_validate(child, schema_node["additionalProperties"], root, child_path, errors, schema_definitions, seen_refs.copy())
+            _walk_schema_and_validate(
+                child,
+                schema_node["additionalProperties"],
+                root,
+                child_path,
+                errors,
+                schema_definitions,
+                seen_refs.copy(),
+            )
 
     if "items" in schema_node:
         items = node if isinstance(node, list) else [node]
         for i, item in enumerate(items):
             item_path = f"{path}[{i}]" if path else f"[{i}]"
-            _walk_schema_and_validate(item, schema_node["items"], root, item_path, errors, schema_definitions, seen_refs.copy())
+            _walk_schema_and_validate(
+                item,
+                schema_node["items"],
+                root,
+                item_path,
+                errors,
+                schema_definitions,
+                seen_refs.copy(),
+            )
 
     if "allOf" in schema_node:
         for sub_schema in schema_node["allOf"]:
@@ -136,13 +176,37 @@ def _walk_schema_and_validate(
                         sub_node = val
                         break
                 if sub_node is not None:
-                    _walk_schema_and_validate(sub_node, sub_schema, root, path, errors, schema_definitions, seen_refs.copy())
+                    _walk_schema_and_validate(
+                        sub_node,
+                        sub_schema,
+                        root,
+                        path,
+                        errors,
+                        schema_definitions,
+                        seen_refs.copy(),
+                    )
                     continue
-            _walk_schema_and_validate(node, sub_schema, root, path, errors, schema_definitions, seen_refs.copy())
+            _walk_schema_and_validate(
+                node,
+                sub_schema,
+                root,
+                path,
+                errors,
+                schema_definitions,
+                seen_refs.copy(),
+            )
 
     if "oneOf" in schema_node:
         for sub_schema in schema_node["oneOf"]:
-            _walk_schema_and_validate(node, sub_schema, root, path, errors, schema_definitions, seen_refs.copy())
+            _walk_schema_and_validate(
+                node,
+                sub_schema,
+                root,
+                path,
+                errors,
+                schema_definitions,
+                seen_refs.copy(),
+            )
 
     # Recurse into nested objects regardless
     if isinstance(node, dict):
@@ -150,7 +214,15 @@ def _walk_schema_and_validate(
             if key.startswith("$"):
                 continue
             child_path = f"{path}.{key}" if path else key
-            _walk_schema_and_validate(child, {}, root, child_path, errors, schema_definitions, seen_refs.copy())
+            _walk_schema_and_validate(
+                child,
+                {},
+                root,
+                child_path,
+                errors,
+                schema_definitions,
+                seen_refs.copy(),
+            )
 
 
 def validate_semantics(root: dict) -> list[str]:
@@ -169,7 +241,9 @@ def validate_semantics(root: dict) -> list[str]:
         data_val = root.get(prop_name)
         if data_val is not None:
             child_path = prop_name
-            _walk_schema_and_validate(data_val, prop_schema, root, child_path, errors, definitions)
+            _walk_schema_and_validate(
+                data_val, prop_schema, root, child_path, errors, definitions
+            )
     return errors
 
 
@@ -190,7 +264,9 @@ def main():
                 data = tomllib.load(f)
 
             with json_file.open("w", encoding="utf-8") as f:
-                data["$schema"] = SCHEMA.relative_to(json_file.parent, walk_up=True).as_posix()
+                data["$schema"] = SCHEMA.relative_to(
+                    json_file.parent, walk_up=True
+                ).as_posix()
                 json.dump(data, f, indent=4, ensure_ascii=False)
 
             print(f"Validating {ui_file}...")
