@@ -228,6 +228,14 @@
                 },
                 {
                     "$ref": "#/definitions/animation"
+                },
+                {
+                    "type": "object",
+                    "additionalProperties": {
+                        "type": "string"
+                    },
+                    "minProperties": 1,
+                    "maxProperties": 1
                 }
             ]
         },
