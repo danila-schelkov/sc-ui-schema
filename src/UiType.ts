@@ -31,8 +31,9 @@ export type UI = {
     uninteractive: ChildReference[];
 
     replace: Replace[];
-    bindings: Record<string, ChildReferenceObject>;
+    bindings: Record<string, ChildReference>;
     buttons: { key: ChildReferenceObject };
+    move: Move[];
 
     skins: Skin[];
 

@@ -378,6 +378,12 @@
         "id": {
             "type": "string"
         },
+        "type": {
+            "type": "string"
+        },
+        "subtype": {
+            "type": "string"
+        },
         "priority": {
             "type": "integer",
             "description": "This config won’t be loaded if priority < 1"
@@ -428,15 +434,15 @@
             }
         },
         "replace": {
-            "type": "object",
-            "additionalProperties": {
+            "type": "array",
+            "items": {
                 "$ref": "#/definitions/childReference"
             }
         },
         "bindings": {
             "type": "object",
             "additionalProperties": {
-                "$ref": "#/definitions/childReference"
+                "$ref": "#/definitions/childReferenceOrId"
             }
         },
         "buttons": {
@@ -452,8 +458,8 @@
             }
         },
         "move": {
-            "type": "object",
-            "additionalProperties": {
+            "type": "array",
+            "items": {
                 "$ref": "#/definitions/move"
             }
         }
