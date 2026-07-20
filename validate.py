@@ -1,10 +1,16 @@
-#!/usr/bin/env python3
+#!/usr/bin/env -S uv run --script
+# /// script
+# requires-python = ">=3.12"
+# dependencies = ["click"]
+# ///
 
 import json
 import subprocess
 import tomllib
 from pathlib import Path
 from typing import Any
+
+import click
 
 SCHEMA = Path("src/ui.schema.json")
 
@@ -253,10 +259,17 @@ def _load_schema() -> dict:
         return json.load(f)
 
 
-def main():
+@click.command()
+@click.option(
+    "--verbose",
+    is_flag=True,
+    default=False,
+    help="Show all validation results, including successful files.",
+)
+def main(verbose: bool) -> None:
     exit_code = 0
 
-    for ui_file in Path(".").rglob("*.ui"):
+    for ui_file in sorted(Path(".").rglob("*.ui")):
         json_file = ui_file.with_suffix(".json")
 
         try:
@@ -269,24 +282,29 @@ def main():
                 ).as_posix()
                 json.dump(data, f, indent=4, ensure_ascii=False)
 
-            print(f"Validating {ui_file}...")
+            if verbose:
+                click.echo(f"Validating {ui_file}...")
+
             result = validate(json_file)
             if result != 0:
                 exit_code = result
+                click.echo(f"  Schema validation failed: {ui_file}")
             else:
                 # Semantic validation
                 semantic_errors = validate_semantics(data)
                 if semantic_errors:
-                    print(f"  Semantic errors in {ui_file}:")
+                    click.echo(f"  Semantic errors in {ui_file}:")
                     for err in semantic_errors:
-                        print(f"    - {err}")
+                        click.echo(f"    - {err}")
                     exit_code = 1
+
+                if verbose:
+                    click.echo(f"  {ui_file} OK")
 
                 json_file.unlink(missing_ok=True)
         except Exception as e:
-            print(f"Error occurred while loading file: {ui_file}: {e}")
-        finally:
-            pass
+            click.echo(f"Error occurred while loading file: {ui_file}: {e}", err=True)
+            exit_code = 1
 
     raise SystemExit(exit_code)
 
