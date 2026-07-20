@@ -106,7 +106,7 @@ export type AnimationType =
 export type Vec2 = [number, number];
 export type Vec3 = [number, number, number];
 
-export type Skin = {
+export type Skin = BindingRef & {
     skin: string;
     hero: string;
     selected_hero: boolean;
