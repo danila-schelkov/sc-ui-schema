@@ -261,6 +261,14 @@
                 "text": {
                     "type": "string"
                 },
+                "auto_scale": {
+                    "$ref": "#/definitions/bool",
+                    "description": "Since BSv68"
+                },
+                "font_size": {
+                    "$ref": "#/definitions/int",
+                    "description": "Since BSv68"
+                },
                 "color": {
                     "$ref": "#/definitions/color"
                 },
@@ -272,8 +280,7 @@
                     "description": "used only if outline is integer"
                 },
                 "gradient": {
-                    "$ref": "#/definitions/gradient",
-                    "description": "used only if outline is integer"
+                    "$ref": "#/definitions/gradient"
                 }
             }
         },
@@ -359,6 +366,10 @@
                 },
                 "dont_animate": {
                     "$ref": "#/definitions/bool"
+                },
+                "dont_animate_on_lowend_devices": {
+                    "$ref": "#/definitions/bool",
+                    "description": "Since BSv68"
                 },
                 "camera_file": {
                     "$ref": "#/definitions/string"
@@ -476,6 +487,10 @@
         },
         "disable_audio": {
             "type": "boolean"
+        },
+        "dont_animate_skins_on_lowend_devices": {
+            "type": "boolean",
+            "description": "Since BSv68"
         },
         "copy_configs": {
             "type": [

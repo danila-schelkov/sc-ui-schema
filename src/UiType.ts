@@ -5,7 +5,8 @@ export type UI = {
     type: string;
     subtype: string;
     center_to_screen: boolean;
-    disable_audio: boolean;
+    disable_audio: boolean; 
+    dont_animate_skins_on_lowend_devices: boolean; // Since BSv68
 
     container_prefix: string;
     container_bg: string;
@@ -114,6 +115,7 @@ export type Skin = BindingRef & {
     use_portrait_camera: boolean;
     portrait: boolean;
     dont_animate: boolean;
+    dont_animate_on_lowend_devices: boolean; // Since BSv68
     camera_file: string;
     position: Vec3;
     offset: Vec2;
@@ -144,6 +146,8 @@ export type Color = number | string;
 export type SetText = BindingRef & Source & {
     tid: string;
     text: string;
+    auto_scale: boolean; // Since BSv68
+    font_size: number; // Since BSv68
     color: Color;
     outline: Color;
     gradient_name: string;
