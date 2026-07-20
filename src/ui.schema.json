@@ -132,10 +132,10 @@
                     "$ref": "#/definitions/binding"
                 },
                 {
-                    "$ref": "#/definitions/source"
+                    "$ref": "#/definitions/childReference"
                 },
                 {
-                    "$ref": "#/definitions/childReference"
+                    "$ref": "#/definitions/source"
                 }
             ]
         },
@@ -172,6 +172,9 @@
             "allOf": [
                 {
                     "$ref": "#/definitions/binding"
+                },
+                {
+                    "$ref": "#/definitions/childReference"
                 }
             ],
             "properties": {
@@ -188,7 +191,7 @@
                     "type": "integer"
                 },
                 "loop": {
-                    "type": "integer"
+                    "type": "boolean"
                 },
                 "next_animation": {
                     "type": "string"
@@ -255,7 +258,7 @@
                     "$ref": "#/definitions/binding"
                 },
                 {
-                    "$ref": "#/definitions/source"
+                    "$ref": "#/definitions/childReference"
                 }
             ],
             "properties": {
@@ -293,6 +296,9 @@
             "allOf": [
                 {
                     "$ref": "#/definitions/binding"
+                },
+                {
+                    "$ref": "#/definitions/childReference"
                 }
             ],
             "properties": {
@@ -347,6 +353,9 @@
             "allOf": [
                 {
                     "$ref": "#/definitions/binding"
+                },
+                {
+                    "$ref": "#/definitions/childReference"
                 }
             ],
             "properties": {

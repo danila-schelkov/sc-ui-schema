@@ -1,11 +1,11 @@
-export type UI = {
+export type UI = Source & {
     id: string;
     priority: number;
 
     type: string;
     subtype: string;
     center_to_screen: boolean;
-    disable_audio: boolean; 
+    disable_audio: boolean;
     dont_animate_skins_on_lowend_devices: boolean; // Since BSv68
 
     container_prefix: string;
@@ -33,7 +33,7 @@ export type UI = {
 
     replace: Replace[];
     bindings: { [key: string]: ChildReference };
-    buttons: { key: ChildReferenceObject };
+    buttons: { [key: string]: ChildReference };
     move: Move[];
 
     skins: { [key: string]: Skin };
@@ -75,7 +75,7 @@ export type ChildReferenceObject = {
     child_index: number;
 };
 
-export type ChildReference = string | ChildReferenceObject;
+export type ChildReference = BindingId | ChildReferenceObject;
 
 export type Replace = BindingRef & ChildReferenceObject & Source;
 
@@ -107,7 +107,7 @@ export type AnimationType =
 export type Vec2 = [number, number];
 export type Vec3 = [number, number, number];
 
-export type Skin = BindingRef & {
+export type Skin = BindingRef & ChildReferenceObject & {
     skin: string;
     hero: string;
     selected_hero: boolean;
@@ -126,7 +126,7 @@ export type Skin = BindingRef & {
     animation_next: AnimationType;
 };
 
-export type Animation = BindingRef & {
+export type Animation = BindingRef & ChildReferenceObject & {
     start: string;
     end: string;
     frame: number;
@@ -143,7 +143,7 @@ export type DefaultAnimation = { default_animation: Animation };
 
 export type Color = number | string;
 
-export type SetText = BindingRef & Source & {
+export type SetText = BindingRef & ChildReferenceObject & {
     tid: string;
     text: string;
     auto_scale: boolean; // Since BSv68
@@ -154,7 +154,7 @@ export type SetText = BindingRef & Source & {
     gradient: { colors: Color[]; speed: number; scale: number };
 };
 
-export type Move = BindingRef & {
+export type Move = BindingRef & ChildReferenceObject & {
     offset: Vec2;
     scale: Vec2 | number;
     rotation: number;
