@@ -132,7 +132,8 @@ export type Animation = BindingRef & ChildReferenceObject & {
     frame: number;
     start_frame: number;
     end_frame: number;
-    loop: number;
+    loop: boolean;  // Since BSv68
+    apply_to_children: boolean;
     next_animation: string;
     animation_next: string;
     next: string;
