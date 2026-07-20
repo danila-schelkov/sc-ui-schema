@@ -126,6 +126,30 @@ def _resolve_bindings_for_file(
                         )
                     )
 
+    # 4. OtherTomlConfig-based binding resolution
+    # If this file has sc_file_source == 'OtherTomlConfig', the sc_file
+    # field references another .ui file by its ID. Collect bindings from
+    # that referenced file (recursively).
+    if file_source == "OtherTomlConfig":
+        sc_file = root.get("sc_file")
+        if sc_file:
+            referenced_file = registry.get(sc_file)
+            if referenced_file is not None:
+                collected.update(
+                    _resolve_bindings_for_file(
+                        referenced_file, 
+                        registry, 
+                        allow_asset_id_list  # Should we allow it?
+                    )
+                )
+            else:
+                # Referenced file not found in registry
+                click.echo(
+                    f"Warning: {root.get('id', '<unknown>')}: "
+                    f"OtherTomlConfig references '{sc_file}' which was not found in registry",
+                    err=True,
+                )
+
     return collected
 
 
