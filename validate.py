@@ -62,25 +62,31 @@ _registry = FileRegistry()
 
 
 def _resolve_bindings_for_file(
-    root: dict, registry: FileRegistry | None = None
-) -> dict[str, Any]:
+    root: dict, registry: FileRegistry | None = None, allow_asset_id_list: bool = True
+) -> set[BindingId]:
     """Resolve all bindings for a root .ui file.
 
     This collects bindings from:
     1. The root file's own 'bindings' section
     2. All files referenced via 'copy_configs'
+    3. All files sharing the same 'sc_file_asset_id_list' (AssetIdList source)
 
     Returns a merged dict of all binding IDs -> values.
     """
     if registry is None:
         registry = _registry
 
-    collected: dict[str, Any] = {}
+    collected: set[BindingId] = set()
 
-    # 1. Direct bindings from the root file
-    root_bindings = root.get("bindings")
+    # 1.1 Direct bindings from the root file
+    root_bindings: dict[BindingId, Any] | None = root.get("bindings")
     if root_bindings:
-        collected.update(root_bindings)
+        collected.update(root_bindings.keys())
+
+    # 1.2 Direct button bindings from the root file
+    root_buttons: dict[BindingId, Any] | None = root.get("buttons")
+    if root_buttons:
+        collected.update(root_buttons.keys())
 
     # 2. Walk copy_configs references
     copy_configs = root.get("copy_configs")
@@ -90,11 +96,35 @@ def _resolve_bindings_for_file(
             config_file = registry.get(config_id)
             if config_file is None:
                 continue
-            config_bindings = config_file.get("bindings")
-            if config_bindings:
-                collected.update(config_bindings)
-            # Recurse into nested copy_configs (in case configs reference configs)
-            _resolve_bindings_for_file(config_file, registry)
+            collected.update(
+                _resolve_bindings_for_file(
+                    config_file,
+                    registry,
+                    allow_asset_id_list,  # Should we allow it?
+                )
+            )
+
+    # 3. AssetIdList-based binding resolution
+    # If this file has sc_file_source == 'AssetIdList', find all files
+    # sharing the same sc_file_asset_id_list and collect their bindings.
+    file_source = root.get("sc_file_source")
+    if file_source == "AssetIdList" and allow_asset_id_list:
+        asset_id_list = root.get("sc_file_asset_id_list")
+        if asset_id_list:
+            # Collect bindings from all files in the same asset_id_list
+            for file_id, file_data in registry._files.items():
+                # Skip the root file itself (its bindings already collected)
+                if file_id == root.get("id"):
+                    continue
+                # Check if this file belongs to the same asset_id_list
+                other_source = file_data.get("sc_file_source")
+                other_asset_list = file_data.get("sc_file_asset_id_list")
+                if other_source == "AssetIdList" and other_asset_list == asset_id_list:
+                    collected.update(
+                        _resolve_bindings_for_file(
+                            file_data, registry, allow_asset_id_list=False
+                        )
+                    )
 
     return collected
 
