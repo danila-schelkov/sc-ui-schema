@@ -31,11 +31,11 @@ export type UI = {
     uninteractive: ChildReference[];
 
     replace: Replace[];
-    bindings: Record<string, ChildReference>;
+    bindings: { [key: string]: ChildReference };
     buttons: { key: ChildReferenceObject };
     move: Move[];
 
-    skins: Skin[];
+    skins: { [key: string]: Skin };
 
     animation: { [key: string]: Animation };
     animations: { [key: string]: Animation };
