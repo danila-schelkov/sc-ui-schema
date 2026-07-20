@@ -1,0 +1,8 @@
+include = ["*.toml", "**/*.ui"]
+
+[[rule]]
+include = ["**/*.ui"]
+
+[rule.schema]
+path = "./src/ui.schema.json"
+enabled = true

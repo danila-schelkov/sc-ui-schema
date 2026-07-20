@@ -1,0 +1,466 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema#",
+    "type": "object",
+    "definitions": {
+        "source": {
+            "type": "object",
+            "properties": {
+                "sc_file_source": {
+                    "type": "string",
+                    "enum": [
+                        "Undefined",
+                        "EventData",
+                        "ShopOffer",
+                        "AssetIdList",
+                        "ChronosFolder",
+                        "ClientFile",
+                        "OtherTomlConfig"
+                    ]
+                },
+                "sc_file": {
+                    "type": "string"
+                },
+                "sc_file_asset_id_list": {
+                    "type": "string"
+                },
+                "sc_file_chronos": {
+                    "type": "string"
+                },
+                "sc_file_client": {
+                    "type": "string"
+                },
+                "png_file_suffix": {
+                    "type": "string"
+                },
+                "other_toml_config": {
+                    "type": "string"
+                },
+                "export_name": {
+                    "type": "string"
+                }
+            }
+        },
+        "container": {
+            "type": "object",
+            "properties": {
+                "container_prefix": {
+                    "type": "string"
+                },
+                "container_bg": {
+                    "type": "string"
+                },
+                "container_left": {
+                    "type": "string"
+                },
+                "container_right": {
+                    "type": "string"
+                },
+                "container_center": {
+                    "type": "string"
+                },
+                "container_top": {
+                    "type": "string"
+                },
+                "container_top_left": {
+                    "type": "string"
+                },
+                "container_top_right": {
+                    "type": "string"
+                },
+                "container_bottom": {
+                    "type": "string"
+                },
+                "container_bottom_left": {
+                    "type": "string"
+                },
+                "container_bottom_right": {
+                    "type": "string"
+                }
+            }
+        },
+        "childReference": {
+            "type": "object",
+            "properties": {
+                "find": {
+                    "type": "string"
+                },
+                "parent_binding": {
+                    "type": "string"
+                },
+                "parent_path": {
+                    "type": "string"
+                },
+                "parent_clip": {
+                    "type": "string"
+                },
+                "path": {
+                    "type": "string"
+                },
+                "child_index": {
+                    "type": "integer"
+                }
+            }
+        },
+        "childReferenceOrId": {
+            "oneOf": [
+                {
+                    "$ref": "#/definitions/childReference"
+                },
+                {
+                    "type": "string"
+                }
+            ]
+        },
+        "bindingId": {
+            "type": "string"
+        },
+        "binding": {
+            "type": "object",
+            "properties": {
+                "binding": {
+                    "$ref": "#/definitions/bindingId"
+                }
+            }
+        },
+        "replace": {
+            "type": "object",
+            "allOf": [
+                {
+                    "$ref": "#/definitions/binding"
+                },
+                {
+                    "$ref": "#/definitions/source"
+                },
+                {
+                    "$ref": "#/definitions/childReference"
+                }
+            ]
+        },
+        "bool": {
+            "type": "boolean"
+        },
+        "int": {
+            "type": "integer"
+        },
+        "float": {
+            "type": "number"
+        },
+        "vector2": {
+            "type": "array",
+            "items": {
+                "$ref": "#/definitions/float"
+            },
+            "minItems": 2,
+            "maxItems": 2
+        },
+        "vector3": {
+            "type": "array",
+            "items": {
+                "$ref": "#/definitions/float"
+            },
+            "minItems": 3,
+            "maxItems": 3
+        },
+        "string": {
+            "type": "string"
+        },
+        "animation": {
+            "type": "object",
+            "allOf": [
+                {
+                    "$ref": "#/definitions/binding"
+                }
+            ],
+            "properties": {
+                "start": {
+                    "type": "string"
+                },
+                "end": {
+                    "type": "string"
+                },
+                "frame": {
+                    "type": "integer"
+                },
+                "start_frame": {
+                    "type": "integer"
+                },
+                "loop": {
+                    "type": "integer"
+                },
+                "next_animation": {
+                    "type": "string"
+                },
+                "animation_next": {
+                    "type": "string"
+                },
+                "next": {
+                    "type": "string"
+                },
+                "also_play": {
+                    "type": [
+                        "string",
+                        "array"
+                    ],
+                    "items": {
+                        "type": "string"
+                    }
+                }
+            }
+        },
+        "defaultAnimation": {
+            "type": "object",
+            "properties": {
+                "default_animation": {
+                    "$ref": "#/definitions/animation"
+                }
+            }
+        },
+        "color": {
+            "oneOf": [
+                {
+                    "type": "integer"
+                },
+                {
+                    "type": "string",
+                    "pattern": "^0x\\[\\da-fA-F\\]+$"
+                }
+            ]
+        },
+        "gradient": {
+            "properties": {
+                "colors": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/color"
+                    }
+                },
+                "speed": {
+                    "type": "integer",
+                    "description": "Will be divided by 100"
+                },
+                "scale": {
+                    "type": "integer",
+                    "description": "Will be divided by 100"
+                }
+            }
+        },
+        "setText": {
+            "type:": "object",
+            "allOf": [
+                {
+                    "$ref": "#/definitions/binding"
+                },
+                {
+                    "$ref": "#/definitions/source"
+                }
+            ],
+            "properties": {
+                "tid": {
+                    "type": "string"
+                },
+                "text": {
+                    "type": "string"
+                },
+                "color": {
+                    "$ref": "#/definitions/color"
+                },
+                "outline": {
+                    "$ref": "#/definitions/color"
+                },
+                "gradient_name": {
+                    "type": "string",
+                    "description": "used only if outline is integer"
+                },
+                "gradient": {
+                    "$ref": "#/definitions/gradient",
+                    "description": "used only if outline is integer"
+                }
+            }
+        },
+        "move": {
+            "type": "object",
+            "allOf": [
+                {
+                    "$ref": "#/definitions/binding"
+                }
+            ],
+            "properties": {
+                "offset": {
+                    "$ref": "#/definitions/vector2"
+                },
+                "scale": {
+                    "oneOf": [
+                        {
+                            "$ref": "#/definitions/vector2"
+                        },
+                        {
+                            "$ref": "#/definitions/float"
+                        }
+                    ]
+                },
+                "rotation": {
+                    "$ref": "#/definitions/float"
+                }
+            }
+        },
+        "custom": {
+            "type": "object",
+            "properties": {
+                "bool": {
+                    "type": "object",
+                    "additionalProperties": {
+                        "$ref": "#/definitions/bool"
+                    }
+                },
+                "int": {
+                    "type": "object",
+                    "additionalProperties": {
+                        "$ref": "#/definitions/int"
+                    }
+                },
+                "float": {
+                    "type": "object",
+                    "additionalProperties": {
+                        "$ref": "#/definitions/float"
+                    }
+                },
+                "vector2": {
+                    "type": "object",
+                    "additionalProperties": {
+                        "$ref": "#/definitions/vector2"
+                    }
+                },
+                "vector3": {
+                    "type": "object",
+                    "additionalProperties": {
+                        "$ref": "#/definitions/vector3"
+                    }
+                },
+                "string": {
+                    "type": "object",
+                    "additionalProperties": {
+                        "$ref": "#/definitions/string"
+                    }
+                }
+            }
+        }
+    },
+    "allOf": [
+        {
+            "$ref": "#/definitions/source"
+        },
+        {
+            "$ref": "#/definitions/container"
+        },
+        {
+            "type": "object",
+            "properties": {
+                "custom": {
+                    "$ref": "#/definitions/custom"
+                }
+            }
+        },
+        {
+            "$ref": "#/definitions/defaultAnimation"
+        },
+        {
+            "patternProperties": {
+                "^animations?$": {
+                    "$ref": "#/definitions/animation"
+                }
+            }
+        }
+    ],
+    "properties": {
+        "$schema": {
+            "type": "string"
+        },
+        "id": {
+            "type": "string"
+        },
+        "priority": {
+            "type": "integer",
+            "description": "This config won’t be loaded if priority < 1"
+        },
+        "copy_configs": {
+            "type": [
+                "string",
+                "array"
+            ],
+            "items": {
+                "type": "string"
+            }
+        },
+        "hide": {
+            "type": "array",
+            "items": {
+                "$ref": "#/definitions/childReferenceOrId"
+            }
+        },
+        "show": {
+            "type": "array",
+            "items": {
+                "$ref": "#/definitions/childReferenceOrId"
+            }
+        },
+        "hide_binding": {
+            "type": "array",
+            "items": {
+                "$ref": "#/definitions/bindingId"
+            }
+        },
+        "show_binding": {
+            "type": "array",
+            "items": {
+                "$ref": "#/definitions/bindingId"
+            }
+        },
+        "interactive": {
+            "type": "array",
+            "items": {
+                "$ref": "#/definitions/childReferenceOrId"
+            }
+        },
+        "uninteractive": {
+            "type": "array",
+            "items": {
+                "$ref": "#/definitions/childReferenceOrId"
+            }
+        },
+        "replace": {
+            "type": "object",
+            "additionalProperties": {
+                "$ref": "#/definitions/childReference"
+            }
+        },
+        "bindings": {
+            "type": "object",
+            "additionalProperties": {
+                "$ref": "#/definitions/childReference"
+            }
+        },
+        "buttons": {
+            "type": "object",
+            "additionalProperties": {
+                "$ref": "#/definitions/childReference"
+            }
+        },
+        "set_text": {
+            "type": "array",
+            "items": {
+                "$ref": "#/definitions/setText"
+            }
+        },
+        "move": {
+            "type": "object",
+            "additionalProperties": {
+                "$ref": "#/definitions/move"
+            }
+        }
+    },
+    "required": [
+        "id",
+        "priority"
+    ],
+    "unevaluatedProperties": false
+}
