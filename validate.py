@@ -30,7 +30,7 @@ def main():
                 data = tomllib.load(f)
 
             with json_file.open("w", encoding="utf-8") as f:
-                data["$schema"] = "../ui.schema.json"
+                data["$schema"] = SCHEMA.relative_to(json_file.parent, walk_up=True).as_posix()
                 json.dump(data, f, indent=4, ensure_ascii=False)
 
             print(f"Validating {ui_file}...")
@@ -39,6 +39,8 @@ def main():
                 exit_code = result
             else:
                 json_file.unlink(missing_ok=True)
+        except Exception as _e:
+            print(f"Error occurred while loading file: {ui_file}")
         finally:
             pass
 
