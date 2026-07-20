@@ -222,7 +222,7 @@
                 },
                 {
                     "type": "string",
-                    "pattern": "^0x\\[\\da-fA-F\\]+$"
+                    "pattern": "^0x[\\da-fA-F]+$"
                 }
             ]
         },
@@ -461,15 +461,21 @@
         "id": {
             "type": "string"
         },
+        "priority": {
+            "type": "integer",
+            "description": "This config won’t be loaded if priority < 1"
+        },
         "type": {
             "type": "string"
         },
         "subtype": {
             "type": "string"
         },
-        "priority": {
-            "type": "integer",
-            "description": "This config won’t be loaded if priority < 1"
+        "center_to_screen": {
+            "type": "boolean"
+        },
+        "disable_audio": {
+            "type": "boolean"
         },
         "copy_configs": {
             "type": [
