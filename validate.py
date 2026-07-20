@@ -29,6 +29,9 @@ def validate(json_file: Path) -> int:
 type BindingId = str
 
 
+_verbosity = 0
+
+
 def _validate_binding_ref(
     node: BindingId, root: dict, path: str, errors: list[str]
 ) -> None:
@@ -46,9 +49,10 @@ def _validate_binding_ref(
         )
         return
     if binding_id not in bindings:
-        errors.append(
-            f"{path}: bindingId '{binding_id}' not found in root 'bindings' (available: {list(bindings.keys())})"
-        )
+        error_message = f"{path}: bindingId '{binding_id}' not found in root 'bindings'"
+        if _verbosity >= 1:
+            error_message += f" (available: {list(bindings.keys())})"
+        errors.append(error_message)
 
 
 def _register_semantic_validator(ref_key: str, validator_fn) -> None:
@@ -262,11 +266,13 @@ def _load_schema() -> dict:
 @click.command()
 @click.option(
     "--verbose",
-    is_flag=True,
-    default=False,
-    help="Show all validation results, including successful files.",
+    "-v",
+    count=True,
+    help="Increase output detail. 0: errors only. 1: bindings in errors. 2: full output.",
 )
-def main(verbose: bool) -> None:
+def main(verbose: int) -> None:
+    global _verbosity
+    _verbosity = verbose
     exit_code = 0
 
     for ui_file in sorted(Path(".").rglob("*.ui")):
@@ -282,7 +288,7 @@ def main(verbose: bool) -> None:
                 ).as_posix()
                 json.dump(data, f, indent=4, ensure_ascii=False)
 
-            if verbose:
+            if verbose >= 2:
                 click.echo(f"Validating {ui_file}...")
 
             result = validate(json_file)
@@ -298,7 +304,7 @@ def main(verbose: bool) -> None:
                         click.echo(f"    - {err}")
                     exit_code = 1
 
-                if verbose:
+                if verbose >= 2:
                     click.echo(f"  {ui_file} OK")
 
                 json_file.unlink(missing_ok=True)
