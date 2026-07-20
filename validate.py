@@ -29,6 +29,75 @@ def validate(json_file: Path) -> int:
 type BindingId = str
 
 
+class FileRegistry:
+    """Registry of all loaded .ui files, keyed by their 'id'.
+
+    Used during semantic validation to resolve cross-file references
+    (e.g., copy_configs) without re-parsing files.
+    """
+
+    def __init__(self) -> None:
+        self._files: dict[str, dict] = {}
+
+    def register(self, file_id: str, data: dict) -> None:
+        """Register a parsed .ui file by its 'id'."""
+        self._files[file_id] = data
+
+    def get(self, file_id: str) -> dict | None:
+        """Retrieve a registered file by its 'id'."""
+        return self._files.get(file_id)
+
+    def register_from_path(self, path: Path) -> None:
+        """Load a .ui file from disk and register it by its 'id'."""
+        with path.open("rb") as f:
+            data = tomllib.load(f)
+        file_id = data.get("id")
+        if file_id:
+            self.register(file_id, data)
+
+
+# Global registry, shared across all semantic validation runs
+_registry = FileRegistry()
+
+
+def _resolve_bindings_for_file(
+    root: dict, registry: FileRegistry | None = None
+) -> dict[str, Any]:
+    """Resolve all bindings for a root .ui file.
+
+    This collects bindings from:
+    1. The root file's own 'bindings' section
+    2. All files referenced via 'copy_configs'
+
+    Returns a merged dict of all binding IDs -> values.
+    """
+    if registry is None:
+        registry = _registry
+
+    collected: dict[str, Any] = {}
+
+    # 1. Direct bindings from the root file
+    root_bindings = root.get("bindings")
+    if root_bindings:
+        collected.update(root_bindings)
+
+    # 2. Walk copy_configs references
+    copy_configs = root.get("copy_configs")
+    if copy_configs:
+        configs = copy_configs if isinstance(copy_configs, list) else [copy_configs]
+        for config_id in configs:
+            config_file = registry.get(config_id)
+            if config_file is None:
+                continue
+            config_bindings = config_file.get("bindings")
+            if config_bindings:
+                collected.update(config_bindings)
+            # Recurse into nested copy_configs (in case configs reference configs)
+            _resolve_bindings_for_file(config_file, registry)
+
+    return collected
+
+
 _verbosity = 0
 
 
@@ -39,11 +108,15 @@ def _validate_binding_ref(
 
     When node is a string (direct bindingId ref), use it directly.
     When node is a dict (binding wrapper), extract the binding property value.
+
+    Also checks bindings resolved from copy_configs references.
     """
     binding_id = node
 
-    bindings: dict[BindingId, Any] | None = root.get("bindings")
-    if bindings is None:
+    # Resolve all bindings (direct + copy_configs)
+    # TODO: pass use registry from outside
+    bindings = _resolve_bindings_for_file(root)
+    if not bindings:
         errors.append(
             f"{path}: bindingId '{binding_id}' references, but no 'bindings' section exists in root"
         )
@@ -235,8 +308,10 @@ def _walk_schema_and_validate(
             )
 
 
-def validate_semantics(root: dict) -> list[str]:
+def validate_semantics(root: dict, registry: FileRegistry | None = None) -> list[str]:
     """Run semantic validation on the root data against the schema.
+
+    Uses the global registry to resolve copy_configs references.
 
     Returns a list of error strings (empty if all OK).
     """
@@ -275,7 +350,16 @@ def main(verbose: int) -> None:
     _verbosity = verbose
     exit_code = 0
 
-    for ui_file in sorted(Path(".").rglob("*.ui")):
+    # Phase 1: Register all .ui files in the registry
+    ui_files = sorted(Path(".").rglob("*.ui"))
+    for ui_file in ui_files:
+        try:
+            _registry.register_from_path(ui_file)
+        except Exception as e:
+            click.echo(f"Warning: Could not register {ui_file}: {e}", err=True)
+
+    # Phase 2: Validate each file
+    for ui_file in ui_files:
         json_file = ui_file.with_suffix(".json")
 
         try:
@@ -297,7 +381,7 @@ def main(verbose: int) -> None:
                 click.echo(f"  Schema validation failed: {ui_file}")
             else:
                 # Semantic validation
-                semantic_errors = validate_semantics(data)
+                semantic_errors = validate_semantics(data, _registry)
                 if semantic_errors:
                     click.echo(f"  Semantic errors in {ui_file}:")
                     for err in semantic_errors:
