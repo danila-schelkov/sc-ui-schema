@@ -300,6 +300,26 @@ def _walk_schema_and_validate(
 
     if "oneOf" in schema_node:
         for sub_schema in schema_node["oneOf"]:
+            # NOTE: it is temporary solution, am I right?
+
+            # Resolve $ref to check type compatibility with node.
+            # This prevents e.g. calling bindingId validator with a dict node
+            # when childReferenceOrId oneOf contains both childReference and bindingId.
+            target_type = None
+            if "$ref" in sub_schema:
+                ref = sub_schema["$ref"]
+                if ref.startswith("#/definitions/"):
+                    def_name = ref.split("/")[-1]
+                    target_type = schema_definitions.get(def_name, {}).get("type")
+            else:
+                target_type = sub_schema.get("type")
+
+            # Skip oneOf branches that don't match the node's actual type.
+            if isinstance(node, dict) and target_type == "string":
+                continue
+            if not isinstance(node, dict) and target_type == "object":
+                continue
+
             _walk_schema_and_validate(
                 node,
                 sub_schema,
