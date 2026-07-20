@@ -20,20 +20,28 @@ def validate(json_file: Path) -> int:
     ).returncode
 
 
+type BindingId = str
+
+
 def _validate_binding_ref(
-    node: dict, schema_def: dict, root: dict, path: str, errors: list[str]
+    node: BindingId, schema_def: dict, root: dict, path: str, errors: list[str]
 ) -> None:
-    """Validate that any binding reference key exists in root's bindings."""
-    binding_id = node.get("binding")
-    if binding_id is None:
-        return
-    bindings = root.get("bindings")
+    """Validate that a bindingId value (string) exists in root's bindings.
+
+    When node is a string (direct bindingId ref), use it directly.
+    When node is a dict (binding wrapper), extract the binding property value.
+    """
+    binding_id = node
+
+    bindings: dict[BindingId, Any] | None = root.get("bindings")
     if bindings is None:
-        errors.append(f"{path}: 'binding' references '{binding_id}', but no 'bindings' section exists in root")
+        errors.append(
+            f"{path}: bindingId '{binding_id}' references, but no 'bindings' section exists in root"
+        )
         return
     if binding_id not in bindings:
         errors.append(
-            f"{path}: binding '{binding_id}' not found in root 'bindings' (available: {list(bindings.keys())})"
+            f"{path}: bindingId '{binding_id}' not found in root 'bindings' (available: {list(bindings.keys())})"
         )
 
 
@@ -50,8 +58,9 @@ def _register_binding_validator(ref_key: str, validator_fn):
     _binding_validators[ref_key] = validator_fn
 
 
+# First argument type must always be the same as definition type
 _binding_validators: dict[str, Any] = {
-    "#/definitions/binding": _validate_binding_ref,
+    "#/definitions/bindingId": _validate_binding_ref,
 }
 
 
@@ -75,11 +84,9 @@ def _walk_schema_and_validate(
             item_path = f"{path}[{i}]" if path else f"[{i}]"
             _walk_schema_and_validate(item, schema_node["items"], root, item_path, errors, schema_definitions, seen_refs.copy())
 
-    if not isinstance(node, dict):
-        return
-
     # Resolve $ref — call semantic validator if registered, then
     # always recurse into the referenced definition's properties.
+    # Must come BEFORE the dict check since bindingId refs have string nodes.
     if "$ref" in schema_node:
         ref = schema_node["$ref"]
         if ref.startswith("#/definitions/"):
@@ -91,6 +98,9 @@ def _walk_schema_and_validate(
                 validator(node, referenced, root, path, errors)
             _walk_schema_and_validate(node, referenced, root, path, errors, schema_definitions, seen_refs.copy())
             return  # Resolved, skip further processing of $ref schema itself
+
+    if not isinstance(node, dict):
+        return
 
     # Recurse into properties / additionalProperties / items / allOf / oneOf
     if "properties" in schema_node:
@@ -115,17 +125,6 @@ def _walk_schema_and_validate(
 
     if "allOf" in schema_node:
         for sub_schema in schema_node["allOf"]:
-            # Handle $ref in subschema — pass the full node so validators
-            # can inspect node properties (e.g. the "binding" key).
-            if "$ref" in sub_schema:
-                ref = sub_schema["$ref"]
-                if ref in _binding_validators and ref not in seen_refs:
-                    seen_refs.add(ref)
-                    validator = _binding_validators[ref]
-                    validator(node, sub_schema, root, path, errors)
-                    continue  # Don't recurse into the referenced definition
-                # $ref to non-semantic definition: recurse with node
-
             # For non-$ref subschemas, extract the matching property value
             # and recurse with that for type-based validation.
             sub_prop = sub_schema.get("properties")

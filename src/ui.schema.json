@@ -88,7 +88,7 @@
                     "type": "string"
                 },
                 "parent_binding": {
-                    "type": "string"
+                    "$ref": "#/definitions/bindingId"
                 },
                 "parent_path": {
                     "type": "string"
