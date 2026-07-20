@@ -221,11 +221,21 @@
             },
             "unevaluatedProperties": false
         },
+        "defaultAnimationVariants": {
+            "oneOf": [
+                {
+                    "type": "string"
+                },
+                {
+                    "$ref": "#/definitions/animation"
+                }
+            ]
+        },
         "defaultAnimation": {
             "type": "object",
             "properties": {
                 "default_animation": {
-                    "$ref": "#/definitions/animation"
+                    "$ref": "#/definitions/defaultAnimationVariants"
                 }
             }
         },
@@ -481,6 +491,11 @@
             "patternProperties": {
                 "^animations?$": {
                     "type": "object",
+                    "properties": {
+                        "default_animation": {
+                            "$ref": "#/definitions/defaultAnimationVariants"
+                        }
+                    },
                     "additionalProperties": {
                         "$ref": "#/definitions/animation"
                     }
