@@ -110,7 +110,7 @@
                     "$ref": "#/definitions/childReference"
                 },
                 {
-                    "type": "string"
+                    "$ref": "#/definitions/bindingId"
                 }
             ]
         },
