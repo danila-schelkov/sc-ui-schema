@@ -1,5 +1,8 @@
 {
     "$schema": "https://json-schema.org/draft/2020-12/schema#",
+    "id": "ui.schema.json",
+    "title": "Supercell’s *.ui (TOML)",
+    "description": "Supercell uses TOML files with .ui extension in their games. This schema contains its definition.",
     "type": "object",
     "definitions": {
         "source": {
