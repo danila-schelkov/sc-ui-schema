@@ -24,7 +24,7 @@ type BindingId = str
 
 
 def _validate_binding_ref(
-    node: BindingId, schema_def: dict, root: dict, path: str, errors: list[str]
+    node: BindingId, root: dict, path: str, errors: list[str]
 ) -> None:
     """Validate that a bindingId value (string) exists in root's bindings.
 
@@ -103,7 +103,7 @@ def _walk_schema_and_validate(
             if ref in _semantic_validators and ref not in seen_refs:
                 seen_refs.add(ref)
                 validator = _semantic_validators[ref]
-                validator(node, referenced, root, path, errors)
+                validator(node, root, path, errors)
             _walk_schema_and_validate(
                 node,
                 referenced,
