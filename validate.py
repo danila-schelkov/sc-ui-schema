@@ -5,6 +5,7 @@
 # ///
 
 import json
+import re
 import subprocess
 import tomllib
 from pathlib import Path
@@ -122,7 +123,7 @@ def _validate_binding_ref(
         )
         return
     if binding_id not in bindings:
-        error_message = f"{path}: bindingId '{binding_id}' not found in root 'bindings'"
+        error_message = f"{path}: bindingId '{binding_id}' not found in 'bindings'"
         if _verbosity >= 1:
             error_message += f" (available: {list(bindings.keys())})"
         errors.append(error_message)
@@ -232,6 +233,24 @@ def _walk_schema_and_validate(
                 seen_refs.copy(),
             )
 
+    if "patternProperties" in schema_node:
+        for pattern_str, properties_schema in schema_node["patternProperties"].items():
+            pattern = re.compile(pattern_str)
+            for key, child in node.items():
+                if not pattern.match(key):
+                    continue
+
+                child_path = f"{path}.{key}" if path else key
+                _walk_schema_and_validate(
+                    child,
+                    properties_schema,
+                    root,
+                    child_path,
+                    errors,
+                    schema_definitions,
+                    seen_refs.copy(),
+                )
+
     if "items" in schema_node:
         items = node if isinstance(node, list) else [node]
         for i, item in enumerate(items):
@@ -319,8 +338,8 @@ def validate_semantics(root: dict, registry: FileRegistry | None = None) -> list
     schema = _load_schema()
     definitions = schema.get("definitions", {})
     # The root schema itself may have allOf/properties at the top level.
-    # We need to walk the schema's root properties against the root data,
-    # NOT the schema's allOf (which describes the schema itself).
+    # We need to walk both properties and allOf against the root data,
+    # because allOf may contain animations with bindingId references.
     root_schema_props = schema.get("properties", {})
     for prop_name, prop_schema in root_schema_props.items():
         data_val = root.get(prop_name)
@@ -329,6 +348,18 @@ def validate_semantics(root: dict, registry: FileRegistry | None = None) -> list
             _walk_schema_and_validate(
                 data_val, prop_schema, root, child_path, errors, definitions
             )
+    # Also walk the root schema's allOf (e.g., animations with bindingId refs)
+    root_all_of = schema.get("allOf", [])
+    for sub_schema in root_all_of:
+        _walk_schema_and_validate(
+            root,
+            sub_schema,
+            root,
+            "",
+            errors,
+            definitions,
+            seen_refs=set(),
+        )
     return errors
 
 
