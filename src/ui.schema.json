@@ -208,7 +208,8 @@
                         "type": "string"
                     }
                 }
-            }
+            },
+            "unevaluatedProperties": false
         },
         "defaultAnimation": {
             "type": "object",
@@ -463,7 +464,10 @@
         {
             "patternProperties": {
                 "^animations?$": {
-                    "$ref": "#/definitions/animation"
+                    "type": "object",
+                    "additionalProperties": {
+                        "$ref": "#/definitions/animation"
+                    }
                 }
             }
         }
