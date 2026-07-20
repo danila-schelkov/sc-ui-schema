@@ -303,6 +303,89 @@
                 }
             }
         },
+        "skinAnimation": {
+            "type": "string",
+            "enum": [
+                "IDLE",
+                "HAPPY",
+                "HAPPY_LOOP",
+                "SAD",
+                "SAD_LOOP",
+                "LOBBY",
+                "LOBBY_LOOP",
+                "Surprise_ANIM",
+                "HERO_SCREEN",
+                "HERO_SCREEN_LOOP",
+                "HERO_SCREEN_IDLE",
+                "SIGNATURE",
+                "HAPPY_ENTER",
+                "SAD_ENTER",
+                "PROFILE",
+                "INTRO",
+                "ENV_LOOP",
+                "SHOP_GROUP_PROFILE",
+                "BRAWLPASS_POPUP_PROFILE",
+                "GACHA_OVERRIDE",
+                "WALK",
+                "SECONDARY",
+                "RECRUITROAD_OVERRIDE"
+            ]
+        },
+        "skin": {
+            "type": "object",
+            "allOf": [
+                {
+                    "$ref": "#/definitions/binding"
+                }
+            ],
+            "properties": {
+                "skin": {
+                    "$ref": "#/definitions/string"
+                },
+                "hero": {
+                    "$ref": "#/definitions/string"
+                },
+                "selected_hero": {
+                    "$ref": "#/definitions/bool"
+                },
+                "load_immediately": {
+                    "$ref": "#/definitions/bool"
+                },
+                "use_portrait_camera": {
+                    "$ref": "#/definitions/bool"
+                },
+                "portrait": {
+                    "$ref": "#/definitions/bool"
+                },
+                "dont_animate": {
+                    "$ref": "#/definitions/bool"
+                },
+                "camera_file": {
+                    "$ref": "#/definitions/string"
+                },
+                "position": {
+                    "$ref": "#/definitions/vector3"
+                },
+                "offset": {
+                    "$ref": "#/definitions/vector2"
+                },
+                "scale": {
+                    "$ref": "#/definitions/float"
+                },
+                "rotation": {
+                    "$ref": "#/definitions/float"
+                },
+                "roll": {
+                    "$ref": "#/definitions/float"
+                },
+                "animation": {
+                    "$ref": "#/definitions/skinAnimation"
+                },
+                "animation_next": {
+                    "$ref": "#/definitions/skinAnimation"
+                }
+            }
+        },
         "custom": {
             "type": "object",
             "properties": {
@@ -436,7 +519,7 @@
         "replace": {
             "type": "array",
             "items": {
-                "$ref": "#/definitions/childReference"
+                "$ref": "#/definitions/replace"
             }
         },
         "bindings": {
@@ -448,7 +531,7 @@
         "buttons": {
             "type": "object",
             "additionalProperties": {
-                "$ref": "#/definitions/childReference"
+                "$ref": "#/definitions/childReferenceOrId"
             }
         },
         "set_text": {
@@ -461,6 +544,12 @@
             "type": "array",
             "items": {
                 "$ref": "#/definitions/move"
+            }
+        },
+        "skins": {
+            "type": "object",
+            "additionalProperties": {
+                "$ref": "#/definitions/skin"
             }
         }
     },
