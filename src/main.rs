@@ -20,6 +20,10 @@ struct Cli {
     /// Skip JSON schema validation and only perform semantic validation.
     #[arg(short, long)]
     skip_schema_validation: bool,
+    /// Files or directories to analyze. If omitted, all .ui files in the current directory
+    /// are analyzed. Directories are walked recursively to find .ui files.
+    #[arg(name = "path")]
+    paths: Vec<PathBuf>,
 }
 
 #[derive(thiserror::Error, Debug)]
@@ -541,14 +545,34 @@ fn validate_schema(json_file: &Path, schema_path: &Path) -> ExitStatus {
         .unwrap_or_else(|_| ExitStatus::from_raw(1))
 }
 
-fn find_ui_files(root: &Path) -> Vec<PathBuf> {
+/// Find all .ui files from the given paths.
+/// Each path can be a file or directory. Directories are walked recursively.
+fn find_ui_files(paths: &[PathBuf]) -> Vec<PathBuf> {
     let mut ui_files: Vec<PathBuf> = Vec::new();
-    for entry in WalkDir::new(root).into_iter().filter_map(|e| e.ok()) {
-        let path = entry.path();
-        if path.extension().is_some_and(|ext| ext == "ui") {
-            ui_files.push(path.to_path_buf());
+
+    for path in paths {
+        let path = path.canonicalize().unwrap_or_else(|_| path.to_path_buf());
+        if path.is_file() {
+            if path.extension().is_some_and(|ext| ext == "ui") {
+                ui_files.push(path);
+            } else {
+                eprintln!(
+                    "Warning: {} is not a .ui file, skipping.",
+                    path.display()
+                );
+            }
+        } else if path.is_dir() {
+            for entry in WalkDir::new(&path).into_iter().filter_map(|e| e.ok()) {
+                let file_path = entry.path();
+                if file_path.extension().is_some_and(|ext| ext == "ui") {
+                    ui_files.push(file_path.to_path_buf());
+                }
+            }
+        } else {
+            eprintln!("Warning: {} does not exist, skipping.", path.display());
         }
     }
+
     ui_files.sort();
     ui_files
 }
@@ -559,7 +583,7 @@ fn run(cli: Cli) -> Result<i32> {
     let schema = load_schema(schema_path)?;
     let mut registry = FileRegistry::default();
 
-    let ui_files = find_ui_files(Path::new("."));
+    let ui_files = find_ui_files(&cli.paths);
 
     // Phase 1: Register all .ui files in the registry
     for ui_file in &ui_files {

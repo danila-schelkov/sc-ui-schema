@@ -8,12 +8,13 @@ import json
 import re
 import subprocess
 import tomllib
+from collections.abc import Iterable
 from pathlib import Path
 from typing import Any
 
 import click
 
-SCHEMA = Path("src/ui.schema.json")
+SCHEMA = Path("src/ui.schema.json").absolute()
 
 
 def validate(json_file: Path) -> int:
@@ -425,6 +426,34 @@ def _load_schema() -> dict:
         return json.load(f)
 
 
+def find_ui_files(paths: Iterable[Path]) -> list[Path]:
+    """Find all .ui files from the given paths.
+
+    Each path can be a file or directory. Directories are walked recursively.
+    """
+    ui_files: list[Path] = []
+    for path in paths:
+        try:
+            resolved = path.resolve()
+        except Exception:
+            resolved = path
+
+        if resolved.is_file():
+            if resolved.suffix == ".ui":
+                ui_files.append(resolved)
+            else:
+                click.echo(
+                    f"Warning: {resolved} is not a .ui file, skipping.",
+                    err=True,
+                )
+        elif resolved.is_dir():
+            ui_files.extend(resolved.rglob("*.ui"))
+        else:
+            click.echo(f"Warning: {path} does not exist, skipping.", err=True)
+
+    return sorted(ui_files)
+
+
 @click.command()
 @click.option(
     "--verbose",
@@ -438,13 +467,20 @@ def _load_schema() -> dict:
     is_flag=True,
     help="Skip JSON schema validation and only perform semantic validation.",
 )
-def main(verbose: int, skip_schema_validation: bool) -> None:
+@click.argument(
+    "paths",
+    type=click.Path(exists=False),
+    required=False,
+    nargs=-1,
+)
+def main(verbose: int, paths: tuple[str, ...], skip_schema_validation: bool) -> None:
     global _verbosity
     _verbosity = verbose
     exit_code = 0
 
+    ui_files = find_ui_files((Path(p) for p in paths) if paths else (Path("."),))
+
     # Phase 1: Register all .ui files in the registry
-    ui_files = sorted(Path(".").rglob("*.ui"))
     for ui_file in ui_files:
         try:
             _registry.register_from_path(ui_file)
