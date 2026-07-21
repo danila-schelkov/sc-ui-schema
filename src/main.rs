@@ -508,39 +508,16 @@ fn validate_semantics(root: &Value, registry: &FileRegistry, schema: &Value) -> 
 
     let semantic_validators = register_semantic_validators();
 
-    // Walk properties at the root level
-    if let Some(properties) = schema.get("properties").and_then(|v| v.as_object()) {
-        for (prop_name, prop_schema) in properties {
-            if let Some(data_val) = root.get(prop_name) {
-                walk_schema_and_validate(
-                    data_val,
-                    prop_schema,
-                    root,
-                    registry,
-                    prop_name,
-                    &mut errors,
-                    &definitions,
-                    &semantic_validators,
-                );
-            }
-        }
-    }
-
-    // Also walk the root schema's allOf (e.g., animations with bindingId refs)
-    if let Some(root_all_of) = schema.get("allOf").and_then(|v| v.as_array()) {
-        for sub_schema in root_all_of {
-            walk_schema_and_validate(
-                root,
-                sub_schema,
-                root,
-                registry,
-                "",
-                &mut errors,
-                &definitions,
-                &semantic_validators,
-            );
-        }
-    }
+    walk_schema_and_validate(
+        root,
+        schema,
+        root,
+        registry,
+        "",
+        &mut errors,
+        &definitions,
+        &semantic_validators,
+    );
 
     errors
 }

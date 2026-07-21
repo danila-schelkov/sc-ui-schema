@@ -157,11 +157,7 @@ _verbosity = 0
 
 
 def _validate_binding_ref(
-    node: BindingId,
-    root: dict,
-    path: str,
-    errors: list[str],
-    registry: FileRegistry
+    node: BindingId, root: dict, path: str, errors: list[str], registry: FileRegistry
 ) -> None:
     """Validate that a bindingId value (string) exists in root's bindings.
 
@@ -411,29 +407,15 @@ def validate_semantics(root: dict, registry: FileRegistry | None = None) -> list
     errors: list[str] = []
     schema = _load_schema()
     definitions = schema.get("definitions", {})
-    # The root schema itself may have allOf/properties at the top level.
-    # We need to walk both properties and allOf against the root data,
-    # because allOf may contain animations with bindingId references.
-    root_schema_props = schema.get("properties", {})
-    for prop_name, prop_schema in root_schema_props.items():
-        data_val = root.get(prop_name)
-        if data_val is not None:
-            child_path = prop_name
-            _walk_schema_and_validate(
-                data_val, prop_schema, root, child_path, errors, definitions, registry
-            )
-    # Also walk the root schema's allOf (e.g., animations with bindingId refs)
-    root_all_of = schema.get("allOf", [])
-    for sub_schema in root_all_of:
-        _walk_schema_and_validate(
-            root,
-            sub_schema,
-            root,
-            "",
-            errors,
-            definitions,
-            registry,
-        )
+    _walk_schema_and_validate(
+        root,
+        schema,
+        root,
+        "",
+        errors,
+        definitions,
+        registry,
+    )
     return errors
 
 
