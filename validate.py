@@ -157,7 +157,11 @@ _verbosity = 0
 
 
 def _validate_binding_ref(
-    node: BindingId, root: dict, path: str, errors: list[str]
+    node: BindingId,
+    root: dict,
+    path: str,
+    errors: list[str],
+    registry: FileRegistry
 ) -> None:
     """Validate that a bindingId value (string) exists in root's bindings.
 
@@ -169,8 +173,7 @@ def _validate_binding_ref(
     binding_id = node
 
     # Resolve all bindings (direct + copy_configs)
-    # TODO: pass use registry from outside
-    bindings = _resolve_bindings_for_file(root)
+    bindings = _resolve_bindings_for_file(root, registry)
     if not bindings:
         errors.append(
             f"{path}: bindingId '{binding_id}' references, but no 'bindings' section exists in root"
@@ -209,6 +212,7 @@ def _walk_schema_and_validate(
     path: str,
     errors: list[str],
     schema_definitions: dict[str, dict],
+    registry: FileRegistry | None = None,
 ) -> None:
     """Recursively walk the schema tree, applying semantic validators
     whenever a $ref to a registered binding definition is encountered."""
@@ -224,6 +228,7 @@ def _walk_schema_and_validate(
                 item_path,
                 errors,
                 schema_definitions,
+                registry,
             )
 
     # Resolve $ref — call semantic validator if registered, then
@@ -236,7 +241,7 @@ def _walk_schema_and_validate(
             referenced = schema_definitions.get(def_name, {})
             if ref in _semantic_validators:
                 validator = _semantic_validators[ref]
-                validator(node, root, path, errors)
+                validator(node, root, path, errors, registry)
             _walk_schema_and_validate(
                 node,
                 referenced,
@@ -244,6 +249,7 @@ def _walk_schema_and_validate(
                 path,
                 errors,
                 schema_definitions,
+                registry,
             )
             return  # Resolved, skip further processing of $ref schema itself
 
@@ -263,6 +269,7 @@ def _walk_schema_and_validate(
                     child_path,
                     errors,
                     schema_definitions,
+                    registry,
                 )
 
     if "additionalProperties" in schema_node:
@@ -277,6 +284,7 @@ def _walk_schema_and_validate(
                 child_path,
                 errors,
                 schema_definitions,
+                registry,
             )
 
     if "patternProperties" in schema_node:
@@ -294,6 +302,7 @@ def _walk_schema_and_validate(
                     child_path,
                     errors,
                     schema_definitions,
+                    registry,
                 )
 
     if "items" in schema_node:
@@ -307,6 +316,7 @@ def _walk_schema_and_validate(
                 item_path,
                 errors,
                 schema_definitions,
+                registry,
             )
 
     if "allOf" in schema_node:
@@ -329,6 +339,7 @@ def _walk_schema_and_validate(
                         path,
                         errors,
                         schema_definitions,
+                        registry,
                     )
                     continue
             _walk_schema_and_validate(
@@ -338,6 +349,7 @@ def _walk_schema_and_validate(
                 path,
                 errors,
                 schema_definitions,
+                registry,
             )
 
     if "oneOf" in schema_node:
@@ -369,6 +381,7 @@ def _walk_schema_and_validate(
                 path,
                 errors,
                 schema_definitions,
+                registry,
             )
 
     # Recurse into nested objects regardless
@@ -384,6 +397,7 @@ def _walk_schema_and_validate(
                 child_path,
                 errors,
                 schema_definitions,
+                registry,
             )
 
 
@@ -406,7 +420,7 @@ def validate_semantics(root: dict, registry: FileRegistry | None = None) -> list
         if data_val is not None:
             child_path = prop_name
             _walk_schema_and_validate(
-                data_val, prop_schema, root, child_path, errors, definitions
+                data_val, prop_schema, root, child_path, errors, definitions, registry
             )
     # Also walk the root schema's allOf (e.g., animations with bindingId refs)
     root_all_of = schema.get("allOf", [])
@@ -418,6 +432,7 @@ def validate_semantics(root: dict, registry: FileRegistry | None = None) -> list
             "",
             errors,
             definitions,
+            registry,
         )
     return errors
 
