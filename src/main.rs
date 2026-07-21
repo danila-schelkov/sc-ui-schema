@@ -270,6 +270,28 @@ fn resolve_bindings_for_file(
     collected
 }
 
+/// Find the closest matching key(s) using Normalized Damerau-Levenshtein distance.
+/// Returns up to `max_suggestions` closest matches sorted by distance.
+fn closest_matches(
+    target: &str,
+    candidates: &HashSet<String>,
+    min_similarity: f64,
+    max_suggestions: usize,
+) -> Vec<(String, f64)> {
+    assert!(min_similarity > 0f64);
+
+    let mut scored: Vec<(String, f64)> = candidates
+        .iter()
+        .filter(|&c| c != "") // Skip empty self-reference
+        .map(|c| (c.clone(), strsim::normalized_damerau_levenshtein(target, c)))
+        .filter(|(_, score)| *score > min_similarity)
+        .collect();
+
+    scored.sort_by(|(_, score_a), (_, score_b)| score_b.total_cmp(score_a));
+    scored.truncate(max_suggestions);
+    scored
+}
+
 fn validate_binding_ref(
     node: &Value,
     root: &Value,
@@ -289,7 +311,14 @@ fn validate_binding_ref(
 
     if !bindings.contains(binding_id) {
         let mut error_message = format!("{path}: bindingId '{binding_id}' not found in 'bindings'");
-        if *VERBOSE.get().unwrap_or(&0) >= 1 {
+        let suggestions = closest_matches(binding_id, &bindings, 0.5, 3);
+        if !suggestions.is_empty() {
+            let suggested: Vec<String> = suggestions
+                .iter()
+                .map(|(name, score)| format!("'{name}' (score: {score:.2})"))
+                .collect();
+            error_message.push_str(&format!(" (did you mean: {})?", suggested.join(", ")));
+        } else if *VERBOSE.get().unwrap_or(&0) >= 1 {
             let available: Vec<&str> = bindings.iter().map(String::as_str).collect();
             error_message.push_str(&format!(" (available: {available:?})"));
         }
@@ -345,7 +374,14 @@ fn validate_animation_ref(
     if !animations.contains(animation_key) {
         let mut error_message =
             format!("{path}: animationKey '{animation_key}' not found in 'animations'");
-        if *VERBOSE.get().unwrap_or(&0) >= 1 {
+        let suggestions = closest_matches(animation_key, &animations, 0.5, 3);
+        if !suggestions.is_empty() {
+            let suggested: Vec<String> = suggestions
+                .iter()
+                .map(|(name, score)| format!("'{name}' (score: {score:.2})"))
+                .collect();
+            error_message.push_str(&format!(" (did you mean: {})?", suggested.join(", ")));
+        } else if *VERBOSE.get().unwrap_or(&0) >= 1 {
             let available: Vec<&str> = animations.iter().map(String::as_str).collect();
             error_message.push_str(&format!(" (available: {available:?})"));
         }

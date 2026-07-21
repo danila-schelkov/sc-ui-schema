@@ -362,6 +362,7 @@ dependencies = [
  "regex",
  "serde",
  "serde_json",
+ "strsim",
  "thiserror",
  "toml",
  "walkdir",

@@ -1,7 +1,7 @@
 #!/usr/bin/env -S uv run --script
 # /// script
 # requires-python = ">=3.12"
-# dependencies = ["click"]
+# dependencies = ["click", "rapidfuzz"]
 # ///
 
 import json
@@ -13,6 +13,7 @@ from pathlib import Path
 from typing import Any
 
 import click
+from rapidfuzz.distance.DamerauLevenshtein import normalized_similarity
 
 SCHEMA = Path("src/ui.schema.json").absolute()
 
@@ -153,6 +154,30 @@ def _resolve_bindings_for_file(
 
 _verbosity = 0
 
+
+def _closest_matches(
+    target: str, candidates: set[str], min_similarity: float, max_suggestions: int
+) -> list[tuple[str, float]]:
+    """Find the closest matching key(s) using Normalized Damerau-Levenshtein distance.
+
+    Returns up to `max_suggestions` closest matches sorted by similarity.
+    """
+
+    scored: list[tuple[str, float]] = []
+    for candidate in candidates:
+        if candidate == "":  # Skip self-reference
+            continue
+        similarity = normalized_similarity(
+            target, candidate, score_cutoff=min_similarity
+        )
+        if similarity > min_similarity:
+            scored.append((candidate, similarity))
+
+    # Highest similarity first
+    scored.sort(key=lambda x: x[1], reverse=True)
+    return scored[:max_suggestions]
+
+
 type AnimationKey = str
 
 
@@ -197,8 +222,16 @@ def _validate_animation_ref(
         )
         return
     if animation_key not in animations:
-        error_message = f"{path}: bindingId '{animation_key}' not found in 'animations'"
-        if _verbosity >= 1:
+        error_message = (
+            f"{path}: animationKey '{animation_key}' not found in 'animations'"
+        )
+        suggestions = _closest_matches(animation_key, animations, 0.5, 3)
+        if suggestions:
+            suggested = ", ".join(
+                f"'{name}' (score: {dist:.2f})" for name, dist in suggestions
+            )
+            error_message += f" (did you mean: {suggested})?"
+        elif _verbosity >= 1:
             error_message += f" (available: {animations})"
         errors.append(error_message)
 
@@ -224,7 +257,13 @@ def _validate_binding_ref(
         return
     if binding_id not in bindings:
         error_message = f"{path}: bindingId '{binding_id}' not found in 'bindings'"
-        if _verbosity >= 1:
+        suggestions = _closest_matches(binding_id, bindings, 0.5, 3)
+        if suggestions:
+            suggested = ", ".join(
+                f"'{name}' (score: {dist:.2f})" for name, dist in suggestions
+            )
+            error_message += f" (did you mean: {suggested})?"
+        elif _verbosity >= 1:
             error_message += f" (available: {bindings})"
         errors.append(error_message)
 
