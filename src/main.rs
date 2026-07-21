@@ -36,9 +36,103 @@ enum Error {
     Toml(#[from] toml::de::Error),
     #[error("Schema file not found: {0}")]
     SchemaNotFound(PathBuf),
+    /// Reserved for future use when walk errors are converted to Result.
+    #[allow(dead_code)]
+    #[error("Schema validation error at {path}: {message}")]
+    SchemaValidation { path: String, message: String },
 }
 
 type Result<T, E = Error> = std::result::Result<T, E>;
+
+/// Detailed schema validation error with path context.
+#[derive(Debug)]
+pub struct ValidationError {
+    /// JSON path to the node that failed validation (e.g., "buttons.close.label").
+    pub path: String,
+    /// Type of validation error.
+    pub kind: ValidationErrorKind,
+    /// The offending node value (useful for debugging).
+    #[allow(dead_code)]
+    pub node: Value,
+    /// The schema that was being validated against (useful for debugging).
+    #[allow(dead_code)]
+    pub schema: Value,
+}
+
+impl std::fmt::Display for ValidationError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        if self.path.is_empty() {
+            write!(f, "{}", self.kind)
+        } else {
+            write!(f, "{}: {}", self.path, self.kind)
+        }
+    }
+}
+
+/// Enumerates the different categories of schema validation errors.
+#[derive(Debug)]
+pub enum ValidationErrorKind {
+    /// The node's type does not match the expected JSON Schema type.
+    TypeMismatch {
+        /// The expected type(s) from the schema.
+        expected: String,
+        /// The actual type of the node.
+        actual: String,
+    },
+    /// The array has more items than `maxItems` allows.
+    TooManyItems {
+        /// The number of items present.
+        actual: usize,
+        /// The maximum allowed by `maxItems`.
+        max: usize,
+    },
+    /// The array has fewer items than `minItems` requires.
+    TooFewItems {
+        /// The number of items present.
+        actual: usize,
+        /// The minimum required by `minItems`.
+        min: usize,
+    },
+    /// The node does not match any branch of a `oneOf` schema.
+    OneOfFailed,
+    /// A JSON Schema feature used in the schema is not supported by this validator.
+    UnsupportedFeature {
+        /// The unsupported feature (e.g., "unevaluatedProperties", "if/then/else").
+        feature: String,
+        /// A brief description of why it's unsupported.
+        reason: String,
+    },
+    /// A semantic validation error (e.g., bindingId not found).
+    Semantic {
+        /// Human-readable error message.
+        message: String,
+    },
+}
+
+impl std::fmt::Display for ValidationErrorKind {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            ValidationErrorKind::TypeMismatch { expected, actual } => {
+                write!(f, "Expected type '{expected}', got '{actual}'")
+            }
+            ValidationErrorKind::TooManyItems { actual, max } => {
+                write!(f, "Array has {actual} items, maximum is {max}")
+            }
+            ValidationErrorKind::TooFewItems { actual, min } => {
+                write!(f, "Array has {actual} items, minimum is {min}")
+            }
+            ValidationErrorKind::OneOfFailed => {
+                write!(f, "Value does not match any oneOf schema branch")
+            }
+            ValidationErrorKind::UnsupportedFeature { feature, reason } => {
+                write!(f, "Unsupported feature '{feature}': {reason}")
+            }
+            ValidationErrorKind::Semantic { message } => {
+                write!(f, "{message}")
+            }
+        }
+    }
+}
 
 type BindingId = String;
 
@@ -295,9 +389,50 @@ fn is_valid_type(node: &Value, type_val: &Value) -> bool {
     }
 }
 
-/// Recursively walk the schema tree, applying semantic validators
-/// whenever a `$ref` to a registered binding definition is encountered.
-/// Returns `true` on success, `false` to early-exit (e.g., wrong type in oneOf).
+/// Build a ValidationError from a type mismatch.
+fn type_mismatch_error(path: &str, node: &Value, expected_type: Option<&Value>) -> ValidationError {
+    let expected = match expected_type {
+        Some(Value::String(s)) => s.to_string(),
+        Some(Value::Array(types)) => {
+            let names: Vec<&str> = types.iter().filter_map(|t| t.as_str()).collect();
+            if names.len() == 1 {
+                names[0].to_string()
+            } else {
+                let joined = names.join(", ");
+                format!("one of: [{joined}]")
+            }
+        }
+        _ => "any".to_string(),
+    };
+    let actual = match node {
+        Value::Null => "null",
+        Value::Bool(_) => "boolean",
+        Value::Number(n) => {
+            if n.is_i64() || n.is_u64() {
+                "integer"
+            } else {
+                "number"
+            }
+        }
+        Value::String(_) => "string",
+        Value::Array(_) => "array",
+        Value::Object(_) => "object",
+    };
+    ValidationError {
+        path: path.to_string(),
+        kind: ValidationErrorKind::TypeMismatch {
+            expected,
+            actual: actual.to_string(),
+        },
+        node: node.clone(),
+        schema: expected_type.unwrap_or(&Value::Null).clone(),
+    }
+}
+
+/// Walk the schema tree and validate the node against it.
+///
+/// Returns `Ok(())` on success, or `Err(ValidationError)` with details
+/// about the first validation failure encountered.
 #[allow(clippy::too_many_arguments)]
 fn walk_schema_and_validate(
     node: &Value,
@@ -308,7 +443,7 @@ fn walk_schema_and_validate(
     errors: &mut Vec<String>,
     schema_definitions: &HashMap<String, Value>,
     semantic_validators: &HashMap<String, SemanticValidator>,
-) -> bool {
+) -> Result<(), ValidationError> {
     // Resolve $ref — call semantic validator if registered, then
     // always recurse into the referenced definition's properties.
     // Must come BEFORE the dict check since bindingId refs have string nodes.
@@ -319,9 +454,10 @@ fn walk_schema_and_validate(
                     // Finish oneOf branching if wrong type.
                     let referenced_type = referenced.get("type");
                     if !is_valid_type(node, referenced_type.unwrap_or(&Value::Null)) {
-                        return false;
+                        return Err(type_mismatch_error(path, node, referenced_type));
                     }
 
+                    // Run any registered semantic validators.
                     if let Some(&validator) = semantic_validators.get(ref_str) {
                         let validator_errors = validator(node, root, registry, path);
                         errors.extend(validator_errors);
@@ -343,20 +479,98 @@ fn walk_schema_and_validate(
     }
 
     // TODO: handle unevaluatedProperties
+    // if schema_node.get("unevaluatedProperties").is_some() {
+    //     return Err(ValidationError {
+    //         path: path.to_string(),
+    //         kind: ValidationErrorKind::UnsupportedFeature {
+    //             feature: "unevaluatedProperties".to_string(),
+    //             reason: "This validator does not support unevaluatedProperties yet".to_string(),
+    //         },
+    //         node: node.clone(),
+    //         schema: schema_node.clone(),
+    //     });
+    // }
+    // TODO: handle if/then/else
+    if schema_node.get("if").is_some()
+        || schema_node.get("then").is_some()
+        || schema_node.get("else").is_some()
+    {
+        return Err(ValidationError {
+            path: path.to_string(),
+            kind: ValidationErrorKind::UnsupportedFeature {
+                feature: "if/then/else".to_string(),
+                reason: "Conditional schemas are not yet supported".to_string(),
+            },
+            node: node.clone(),
+            schema: schema_node.clone(),
+        });
+    }
+    // TODO: handle $dynamicRef
+    if schema_node.get("$dynamicRef").is_some() {
+        return Err(ValidationError {
+            path: path.to_string(),
+            kind: ValidationErrorKind::UnsupportedFeature {
+                feature: "$dynamicRef".to_string(),
+                reason: "Dynamic JSON Schema references are not yet supported".to_string(),
+            },
+            node: node.clone(),
+            schema: schema_node.clone(),
+        });
+    }
+    // TODO: handle $vocabulary
+    if schema_node.get("$vocabulary").is_some() {
+        return Err(ValidationError {
+            path: path.to_string(),
+            kind: ValidationErrorKind::UnsupportedFeature {
+                feature: "$vocabulary".to_string(),
+                reason: "JSON Schema vocabulary declarations are not yet supported".to_string(),
+            },
+            node: node.clone(),
+            schema: schema_node.clone(),
+        });
+    }
 
+    // Array validation (items, minItems, maxItems)
     if let Some(items_schema) = schema_node.get("items") {
-        let items: Vec<&Value> = node.as_array().unwrap().iter().collect();
+        let items = match node.as_array() {
+            Some(arr) => arr.iter().collect::<Vec<_>>(),
+            None => {
+                return Err(type_mismatch_error(
+                    path,
+                    node,
+                    Some(&Value::from("array".to_string())),
+                ));
+            }
+        };
 
-        if let Some(min_items) = schema_node.get("minItems")
-            && min_items.as_u64().expect("Min items must be an integer") as usize > items.len()
-        {
-            return false;
+        if let Some(min_items) = schema_node.get("minItems") {
+            let min = min_items.as_u64().expect("Min items must be an integer") as usize;
+            if min > items.len() {
+                return Err(ValidationError {
+                    path: path.to_string(),
+                    kind: ValidationErrorKind::TooFewItems {
+                        actual: items.len(),
+                        min,
+                    },
+                    node: node.clone(),
+                    schema: schema_node.clone(),
+                });
+            }
         }
 
-        if let Some(max_items) = schema_node.get("maxItems")
-            && (max_items.as_u64().expect("Max items must be an integer") as usize) < items.len()
-        {
-            return false;
+        if let Some(max_items) = schema_node.get("maxItems") {
+            let max = max_items.as_u64().expect("Max items must be an integer") as usize;
+            if max < items.len() {
+                return Err(ValidationError {
+                    path: path.to_string(),
+                    kind: ValidationErrorKind::TooManyItems {
+                        actual: items.len(),
+                        max,
+                    },
+                    node: node.clone(),
+                    schema: schema_node.clone(),
+                });
+            }
         }
 
         for (i, item) in items.iter().enumerate() {
@@ -365,7 +579,7 @@ fn walk_schema_and_validate(
             } else {
                 format!("{path}[{i}]")
             };
-            if !walk_schema_and_validate(
+            walk_schema_and_validate(
                 item,
                 items_schema,
                 root,
@@ -374,13 +588,12 @@ fn walk_schema_and_validate(
                 errors,
                 schema_definitions,
                 semantic_validators,
-            ) {
-                return false;
-            }
+            )?;
         }
+        return Ok(()); // Array handled, skip object-specific checks
     }
 
-    // oneOf
+    // oneOf — find a subschema that validates successfully
     if let Some(one_of) = schema_node.get("oneOf").and_then(|v| v.as_array()) {
         for sub_schema in one_of {
             let sub_schema_type = sub_schema.get("type");
@@ -391,7 +604,9 @@ fn walk_schema_and_validate(
             }
 
             let mut one_of_errors: Vec<String> = Vec::new();
-            let result = walk_schema_and_validate(
+
+            // Try this branch; if it succeeds, we're done.
+            if walk_schema_and_validate(
                 node,
                 sub_schema,
                 root,
@@ -400,16 +615,25 @@ fn walk_schema_and_validate(
                 &mut one_of_errors,
                 schema_definitions,
                 semantic_validators,
-            );
-            if result {
+            )
+            .is_ok()
+            {
                 errors.extend(one_of_errors);
-                break;
+                return Ok(());
             }
         }
+        // No branch matched.
+        return Err(ValidationError {
+            path: path.to_string(),
+            kind: ValidationErrorKind::OneOfFailed,
+            node: node.clone(),
+            schema: schema_node.clone(),
+        });
     }
 
+    // Object validation
     if !node.is_object() {
-        return true;
+        return Ok(());
     }
 
     let obj = node.as_object().unwrap();
@@ -425,7 +649,7 @@ fn walk_schema_and_validate(
                 } else {
                     format!("{path}.{prop_name}")
                 };
-                if !walk_schema_and_validate(
+                walk_schema_and_validate(
                     child,
                     prop_schema,
                     root,
@@ -434,9 +658,7 @@ fn walk_schema_and_validate(
                     errors,
                     schema_definitions,
                     semantic_validators,
-                ) {
-                    return false;
-                }
+                )?;
             }
         }
     }
@@ -449,7 +671,10 @@ fn walk_schema_and_validate(
             }
 
             // Skip keys already handled by properties
-            if properties.is_some() && properties.as_ref().unwrap().contains_key(key.as_str()) {
+            if properties
+                .as_ref()
+                .is_some_and(|p| p.contains_key(key.as_str()))
+            {
                 continue;
             }
 
@@ -458,7 +683,7 @@ fn walk_schema_and_validate(
             } else {
                 format!("{path}.{key}")
             };
-            if !walk_schema_and_validate(
+            walk_schema_and_validate(
                 child,
                 additional,
                 root,
@@ -467,9 +692,7 @@ fn walk_schema_and_validate(
                 errors,
                 schema_definitions,
                 semantic_validators,
-            ) {
-                return false;
-            }
+            )?;
         }
     }
 
@@ -489,7 +712,7 @@ fn walk_schema_and_validate(
                     } else {
                         format!("{path}.{key}")
                     };
-                    if !walk_schema_and_validate(
+                    walk_schema_and_validate(
                         child,
                         properties_schema,
                         root,
@@ -498,15 +721,13 @@ fn walk_schema_and_validate(
                         errors,
                         schema_definitions,
                         semantic_validators,
-                    ) {
-                        return false;
-                    }
+                    )?;
                 }
             }
         }
     }
 
-    // allOf
+    // allOf — all subschemas must validate
     if let Some(all_of) = schema_node.get("allOf").and_then(|v| v.as_array()) {
         for sub_schema in all_of {
             // For non-$ref subschemas, extract the matching property value
@@ -520,7 +741,7 @@ fn walk_schema_and_validate(
                     }
                 }
                 if let Some(sub_node) = sub_node {
-                    if !walk_schema_and_validate(
+                    walk_schema_and_validate(
                         sub_node,
                         sub_schema,
                         root,
@@ -529,13 +750,11 @@ fn walk_schema_and_validate(
                         errors,
                         schema_definitions,
                         semantic_validators,
-                    ) {
-                        return false;
-                    }
+                    )?;
                     continue;
                 }
             }
-            if !walk_schema_and_validate(
+            walk_schema_and_validate(
                 node,
                 sub_schema,
                 root,
@@ -544,17 +763,17 @@ fn walk_schema_and_validate(
                 errors,
                 schema_definitions,
                 semantic_validators,
-            ) {
-                return false;
-            }
+            )?;
         }
     }
 
-    true
+    Ok(())
 }
 
+/// Validate a file semantically against the schema.
+///
+/// Returns a vector of validation errors. An empty vector means the file is valid.
 fn validate_semantics(root: &Value, registry: &FileRegistry, schema: &Value) -> Vec<String> {
-    let mut errors = Vec::new();
     let definitions = schema
         .get("definitions")
         .and_then(|v| v.as_object())
@@ -566,8 +785,9 @@ fn validate_semantics(root: &Value, registry: &FileRegistry, schema: &Value) -> 
         .collect();
 
     let semantic_validators = register_semantic_validators();
+    let mut errors = Vec::new();
 
-    if !walk_schema_and_validate(
+    match walk_schema_and_validate(
         root,
         schema,
         root,
@@ -577,8 +797,10 @@ fn validate_semantics(root: &Value, registry: &FileRegistry, schema: &Value) -> 
         &definitions,
         &semantic_validators,
     ) {
-        eprintln!("Something went wrong...");
-    }
+        Ok(()) => {}
+        Err(e) => eprintln!("{e:?}"),
+    };
+
     errors
 }
 
