@@ -179,7 +179,7 @@ def _validate_binding_ref(
     if binding_id not in bindings:
         error_message = f"{path}: bindingId '{binding_id}' not found in 'bindings'"
         if _verbosity >= 1:
-            error_message += f" (available: {list(bindings.keys())})"
+            error_message += f" (available: {bindings})"
         errors.append(error_message)
 
 
