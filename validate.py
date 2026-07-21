@@ -318,13 +318,27 @@ def _walk_schema_and_validate(
             )
 
     if "items" in schema_node:
-        items = node if isinstance(node, list) else [node]
+        items_schema = schema_node["items"]
+        assert isinstance(items_schema, dict)  # may be list, not supported for now
+
+        if not _is_valid_type(node, "array"):
+            return False
+
+        items: list[Any] = node
+
+        item_count = len(items)
+        min_items: int | None = schema_node.get("minItems")
+        if min_items is not None and item_count < min_items:
+            return False
+        max_items: int | None = schema_node.get("maxItems")
+        if max_items is not None and item_count > max_items:
+            return False
 
         for i, item in enumerate(items):
             item_path = f"{path}[{i}]" if path else f"[{i}]"
             if not _walk_schema_and_validate(
                 item,
-                schema_node["items"],
+                items_schema,
                 root,
                 item_path,
                 errors,

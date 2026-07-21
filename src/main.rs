@@ -346,6 +346,19 @@ fn walk_schema_and_validate(
 
     if let Some(items_schema) = schema_node.get("items") {
         let items: Vec<&Value> = node.as_array().unwrap().iter().collect();
+
+        if let Some(min_items) = schema_node.get("minItems")
+            && min_items.as_u64().expect("Min items must be an integer") as usize > items.len()
+        {
+            return false;
+        }
+
+        if let Some(max_items) = schema_node.get("maxItems")
+            && (max_items.as_u64().expect("Max items must be an integer") as usize) < items.len()
+        {
+            return false;
+        }
+
         for (i, item) in items.iter().enumerate() {
             let item_path = if path.is_empty() {
                 format!("[{i}]")
