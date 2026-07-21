@@ -283,7 +283,9 @@
                     "type": "integer",
                     "description": "Will be divided by 100"
                 }
-            }
+            },
+            "required": ["colors", "speed", "scale"],
+            "unevaluatedProperties": false
         },
         "setText": {
             "type:": "object",
