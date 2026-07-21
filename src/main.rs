@@ -13,6 +13,9 @@ struct Cli {
     /// Increase output detail. 0: errors only. 1: bindings in errors. 2: full output.
     #[arg(short, long, action = clap::ArgAction::Count)]
     verbose: u8,
+    /// Skip JSON schema validation and only perform semantic validation.
+    #[arg(short, long)]
+    skip_schema_validation: bool,
 }
 
 #[derive(thiserror::Error, Debug)]
@@ -628,12 +631,24 @@ fn run(cli: Cli) -> Result<i32> {
                         eprintln!("Validating {}...", ui_file.display());
                     }
 
-                    // Schema validation
-                    let status = validate_schema(&json_file, schema_path);
-                    if !status.success() {
-                        exit_code = status.code().unwrap_or(1);
-                        eprintln!("  Schema validation failed: {}", ui_file.display());
+                    // Schema validation (skipped if --skip-schema-validation is set)
+                    let schema_valid = if cli.skip_schema_validation {
+                        if cli.verbose >= 1 {
+                            eprintln!("  Skipping schema validation: {}", ui_file.display());
+                        }
+                        true
                     } else {
+                        let status = validate_schema(&json_file, schema_path);
+                        if !status.success() {
+                            exit_code = status.code().unwrap_or(1);
+                            eprintln!("  Schema validation failed: {}", ui_file.display());
+                            false
+                        } else {
+                            true
+                        }
+                    };
+
+                    if schema_valid {
                         // Semantic validation
                         let semantic_errors = validate_semantics(&data, &registry, &schema);
                         if !semantic_errors.is_empty() {

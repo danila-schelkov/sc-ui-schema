@@ -450,7 +450,13 @@ def _load_schema() -> dict:
     count=True,
     help="Increase output detail. 0: errors only. 1: bindings in errors. 2: full output.",
 )
-def main(verbose: int) -> None:
+@click.option(
+    "-s",
+    "--skip-schema-validation",
+    is_flag=True,
+    help="Skip JSON schema validation and only perform semantic validation.",
+)
+def main(verbose: int, skip_schema_validation: bool) -> None:
     global _verbosity
     _verbosity = verbose
     exit_code = 0
@@ -480,11 +486,18 @@ def main(verbose: int) -> None:
             if verbose >= 2:
                 click.echo(f"Validating {ui_file}...")
 
-            result = validate(json_file)
-            if result != 0:
-                exit_code = result
-                click.echo(f"  Schema validation failed: {ui_file}")
-            else:
+            # Schema validation (skipped if --skip-schema-validation is set)
+            schema_valid = True
+            if not skip_schema_validation:
+                result = validate(json_file)
+                if result != 0:
+                    exit_code = result
+                    click.echo(f"  Schema validation failed: {ui_file}")
+                    schema_valid = False
+                elif verbose >= 1:
+                    click.echo(f"  Schema validation passed: {ui_file}")
+
+            if schema_valid:
                 # Semantic validation
                 semantic_errors = validate_semantics(data, _registry)
                 if semantic_errors:
