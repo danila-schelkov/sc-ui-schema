@@ -1,4 +1,4 @@
-export type UI = Source & {
+export type UI = Source & DefaultAnimation & {
     id: string;
     priority: number;
 
@@ -25,8 +25,8 @@ export type UI = Source & {
     hide: ChildReference[];
     show: ChildReference[];
 
-    hide_binding: string[];
-    show_binding: string[];
+    hide_binding: BindingId[];
+    show_binding: BindingId[];
 
     interactive: ChildReference[];
     uninteractive: ChildReference[];
@@ -38,15 +38,15 @@ export type UI = Source & {
 
     skins: { [key: string]: Skin };
 
-    animation: { [key: string]: Animation };
-    animations: { [key: string]: Animation };
-    custom: { [key: string]: unknown };
+    animation: DefaultAnimation & { [key: string]: Animation };
+    animations: DefaultAnimation & { [key: string]: Animation };
+    custom: CustomFields;
 };
 
 export type BindingId = string;
 export type BindingRef = {
     binding: BindingId;
-}
+};
 
 export type Source = {
     sc_file_source:
@@ -68,7 +68,7 @@ export type Source = {
 
 export type ChildReferenceObject = {
     find: string;
-    parent_binding: string;
+    parent_binding: BindingId;
     parent_path: string;
     parent_clip: string;
     path: string;
@@ -140,7 +140,7 @@ export type Animation = BindingRef & ChildReferenceObject & {
     also_play: string | string[];
 };
 
-export type DefaultAnimation = { default_animation: Animation };
+export type DefaultAnimation = { default_animation: string | { self: string } | Animation };
 
 export type Color = number | string;
 
@@ -161,4 +161,12 @@ export type Move = BindingRef & ChildReferenceObject & {
     rotation: number;
 };
 
-export type CustomType = "bool" | "int" | "float" | "vector2" | "vector3" | "string";
+export type CustomFields = {
+    int: { [key: string]: number };
+    bool: { [key: string]: boolean };
+    float: { [key: string]: number };
+    vector2: { [key: string]: Vec2 };
+    vector3: { [key: string]: Vec3 };
+    string: { [key: string]: string }
+}
+export type CustomType = keyof CustomFields;
