@@ -68,7 +68,7 @@ def _resolve_bindings_for_file(
     2. All files referenced via 'copy_configs'
     3. All files sharing the same 'sc_file_asset_id_list' (AssetIdList source)
 
-    Returns a merged dict of all binding IDs -> values.
+    Returns a merged set of all binding IDs.
     """
 
     collected: set[BindingId] = set()
@@ -159,14 +159,12 @@ type AnimationKey = str
 def _resolve_animations_for_file(
     root: dict, _registry: FileRegistry | None = None
 ) -> set[AnimationKey]:
-    """Resolve all bindings for a root .ui file.
+    """Resolve all animations for a root .ui file.
 
     This collects bindings from:
-    1. The root file's own 'bindings' section
-    2. All files referenced via 'copy_configs'
-    3. All files sharing the same 'sc_file_asset_id_list' (AssetIdList source)
+    1. The root file's "animations" or "animation" section
 
-    Returns a merged dict of all binding IDs -> values.
+    Returns a merged set of all animation keys.
     """
 
     collected: set[BindingId] = set()
@@ -321,6 +319,7 @@ def _walk_schema_and_validate(
 
     if "items" in schema_node:
         items = node if isinstance(node, list) else [node]
+
         for i, item in enumerate(items):
             item_path = f"{path}[{i}]" if path else f"[{i}]"
             if not _walk_schema_and_validate(

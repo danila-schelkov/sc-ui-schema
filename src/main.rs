@@ -205,6 +205,62 @@ fn validate_binding_ref(
     Vec::new()
 }
 
+type AnimationKey = String;
+
+fn resolve_animations_for_file(root: &Value, _registry: &FileRegistry) -> HashSet<AnimationKey> {
+    // Resolve all animations for a root .ui file.
+    //
+    // This collects animations from:
+    // 1. The root file's "animations" or "animation" section
+    // 2. All files referenced via "copy_configs"
+    // 3. All files sharing the same "sc_file_asset_id_list" (AssetIdList source)
+    //
+    // Returns a merged set of all animation keys.
+
+    let mut collected: HashSet<AnimationKey> = HashSet::new();
+
+    // An empty string path — reference to self
+    collected.insert("".to_string());
+
+    // Direct animations from the root file
+    let root_animations = root.get("animation").or(root.get("animations"));
+    if let Some(animations) = root_animations.and_then(|v| v.as_object()) {
+        collected.extend(animations.keys().cloned());
+    }
+
+    collected
+}
+
+fn validate_animation_ref(
+    node: &Value,
+    root: &Value,
+    registry: &FileRegistry,
+    path: &str,
+) -> Vec<String> {
+    let animation_key = node.as_str().unwrap();
+
+    // Resolve all animations (direct + copy_configs + cross-file)
+    let animations: HashSet<String> = resolve_animations_for_file(root, registry);
+
+    if animations.is_empty() {
+        return vec![format!(
+            "{path}: animationKey '{animation_key}' references, but no 'animations' section exists in root"
+        )];
+    }
+
+    if !animations.contains(animation_key) {
+        let mut error_message =
+            format!("{path}: animationKey '{animation_key}' not found in 'animations'");
+        if *VERBOSE.get().unwrap_or(&0) >= 1 {
+            let available: Vec<&str> = animations.iter().map(String::as_str).collect();
+            error_message.push_str(&format!(" (available: {available:?})"));
+        }
+        return vec![error_message];
+    }
+
+    Vec::new()
+}
+
 /// Semantic validators keyed by schema definition ref.
 type SemanticValidator = fn(&Value, &Value, &FileRegistry, &str) -> Vec<String>;
 
@@ -214,11 +270,34 @@ fn register_semantic_validators() -> HashMap<String, SemanticValidator> {
         "#/definitions/bindingId".to_string(),
         validate_binding_ref as SemanticValidator,
     );
+    validators.insert(
+        "#/definitions/animationKey".to_string(),
+        validate_animation_ref as SemanticValidator,
+    );
     validators
+}
+
+/// Check if a node matches the expected JSON Schema type(s).
+fn is_valid_type(node: &Value, type_val: &Value) -> bool {
+    match type_val {
+        Value::String(s) => match s.as_str() {
+            "integer" => node.is_i64() || node.is_u64(),
+            "number" => node.is_number(),
+            "boolean" => node.is_boolean(),
+            "string" => node.is_string(),
+            "object" => node.is_object(),
+            "array" => node.is_array(),
+            _ => true,
+        },
+        Value::Array(types) => types.iter().any(|t| is_valid_type(node, t)),
+        Value::Null => true,
+        _ => panic!("Unexpected type: {type_val:?}"),
+    }
 }
 
 /// Recursively walk the schema tree, applying semantic validators
 /// whenever a `$ref` to a registered binding definition is encountered.
+/// Returns `true` on success, `false` to early-exit (e.g., wrong type in oneOf).
 #[allow(clippy::too_many_arguments)]
 fn walk_schema_and_validate(
     node: &Value,
@@ -229,7 +308,7 @@ fn walk_schema_and_validate(
     errors: &mut Vec<String>,
     schema_definitions: &HashMap<String, Value>,
     semantic_validators: &HashMap<String, SemanticValidator>,
-) {
+) -> bool {
     // Resolve $ref — call semantic validator if registered, then
     // always recurse into the referenced definition's properties.
     // Must come BEFORE the dict check since bindingId refs have string nodes.
@@ -237,19 +316,18 @@ fn walk_schema_and_validate(
         if let Some(ref_str) = ref_val.as_str() {
             if ref_str.starts_with("#/definitions/") {
                 if let Some(referenced) = schema_definitions.get(ref_str) {
-                    if let Some(&validator) = semantic_validators.get(ref_str) {
-                        // Only call the validator if the node is a string.
-                        // Non-string nodes (dicts, arrays) are silently skipped,
-                        // matching the Python walker's oneOf type filtering.
-
-                        // TODO: before walking to one of oneOf branch, validate that schema is
-                        //  suitable for data.
-                        if node.is_string() {
-                            let validator_errors = validator(node, root, registry, path);
-                            errors.extend(validator_errors);
-                        }
+                    // Finish oneOf branching if wrong type.
+                    let referenced_type = referenced.get("type");
+                    if !is_valid_type(node, referenced_type.unwrap_or(&Value::Null)) {
+                        return false;
                     }
-                    walk_schema_and_validate(
+
+                    if let Some(&validator) = semantic_validators.get(ref_str) {
+                        let validator_errors = validator(node, root, registry, path);
+                        errors.extend(validator_errors);
+                    }
+                    // Resolved, skip further processing of $ref schema itself
+                    return walk_schema_and_validate(
                         node,
                         referenced,
                         root,
@@ -259,7 +337,6 @@ fn walk_schema_and_validate(
                         schema_definitions,
                         semantic_validators,
                     );
-                    return;
                 }
             }
         }
@@ -268,18 +345,14 @@ fn walk_schema_and_validate(
     // TODO: handle unevaluatedProperties
 
     if let Some(items_schema) = schema_node.get("items") {
-        let items: Vec<&Value> = if node.is_array() {
-            node.as_array().unwrap().iter().collect()
-        } else {
-            vec![node]
-        };
+        let items: Vec<&Value> = node.as_array().unwrap().iter().collect();
         for (i, item) in items.iter().enumerate() {
             let item_path = if path.is_empty() {
                 format!("[{i}]")
             } else {
                 format!("{path}[{i}]")
             };
-            walk_schema_and_validate(
+            if !walk_schema_and_validate(
                 item,
                 items_schema,
                 root,
@@ -288,56 +361,50 @@ fn walk_schema_and_validate(
                 errors,
                 schema_definitions,
                 semantic_validators,
-            );
+            ) {
+                return false;
+            }
         }
     }
 
     // oneOf
     if let Some(one_of) = schema_node.get("oneOf").and_then(|v| v.as_array()) {
         for sub_schema in one_of {
-            let target_type = if let Some(ref_val) = sub_schema.get("$ref") {
-                if let Some(ref_str) = ref_val.as_str() {
-                    if ref_str.starts_with("#/definitions/") {
-                        let def_name = ref_str.split('/').last().unwrap_or("");
-                        schema_definitions
-                            .get(def_name)
-                            .and_then(|v| v.get("type"))
-                            .and_then(|v| v.as_str())
-                    } else {
-                        None
-                    }
-                } else {
-                    None
-                }
-            } else {
-                sub_schema.get("type").and_then(|v| v.as_str())
-            };
+            let sub_schema_type = sub_schema.get("type");
 
-            match (target_type, node.is_object()) {
-                (Some("string"), true) => continue,
-                (Some("object"), false) => continue,
-                _ => {}
+            // Skip oneOf branches that don't match the node's actual type.
+            if !is_valid_type(node, sub_schema_type.unwrap_or(&Value::Null)) {
+                continue;
             }
 
-            walk_schema_and_validate(
+            let mut one_of_errors: Vec<String> = Vec::new();
+            let result = walk_schema_and_validate(
                 node,
                 sub_schema,
                 root,
                 registry,
                 path,
-                errors,
+                &mut one_of_errors,
                 schema_definitions,
                 semantic_validators,
             );
+            if result {
+                errors.extend(one_of_errors);
+                break;
+            }
         }
     }
 
-    let Some(obj) = node.as_object() else {
-        return;
-    };
+    if !node.is_object() {
+        return true;
+    }
+
+    let obj = node.as_object().unwrap();
 
     // Recurse into properties
-    if let Some(properties) = schema_node.get("properties").and_then(|v| v.as_object()) {
+    let properties: Option<&serde_json::Map<String, Value>> =
+        schema_node.get("properties").and_then(|v| v.as_object());
+    if let Some(properties) = properties {
         for (prop_name, prop_schema) in properties {
             if let Some(child) = obj.get(prop_name) {
                 let child_path = if path.is_empty() {
@@ -345,7 +412,7 @@ fn walk_schema_and_validate(
                 } else {
                     format!("{path}.{prop_name}")
                 };
-                walk_schema_and_validate(
+                if !walk_schema_and_validate(
                     child,
                     prop_schema,
                     root,
@@ -354,7 +421,9 @@ fn walk_schema_and_validate(
                     errors,
                     schema_definitions,
                     semantic_validators,
-                );
+                ) {
+                    return false;
+                }
             }
         }
     }
@@ -365,12 +434,18 @@ fn walk_schema_and_validate(
             if key.starts_with('$') {
                 continue;
             }
+
+            // Skip keys already handled by properties
+            if properties.is_some() && properties.as_ref().unwrap().contains_key(key.as_str()) {
+                continue;
+            }
+
             let child_path = if path.is_empty() {
                 key.to_string()
             } else {
                 format!("{path}.{key}")
             };
-            walk_schema_and_validate(
+            if !walk_schema_and_validate(
                 child,
                 additional,
                 root,
@@ -379,7 +454,9 @@ fn walk_schema_and_validate(
                 errors,
                 schema_definitions,
                 semantic_validators,
-            );
+            ) {
+                return false;
+            }
         }
     }
 
@@ -399,7 +476,7 @@ fn walk_schema_and_validate(
                     } else {
                         format!("{path}.{key}")
                     };
-                    walk_schema_and_validate(
+                    if !walk_schema_and_validate(
                         child,
                         properties_schema,
                         root,
@@ -408,7 +485,9 @@ fn walk_schema_and_validate(
                         errors,
                         schema_definitions,
                         semantic_validators,
-                    );
+                    ) {
+                        return false;
+                    }
                 }
             }
         }
@@ -428,7 +507,7 @@ fn walk_schema_and_validate(
                     }
                 }
                 if let Some(sub_node) = sub_node {
-                    walk_schema_and_validate(
+                    if !walk_schema_and_validate(
                         sub_node,
                         sub_schema,
                         root,
@@ -437,11 +516,13 @@ fn walk_schema_and_validate(
                         errors,
                         schema_definitions,
                         semantic_validators,
-                    );
+                    ) {
+                        return false;
+                    }
                     continue;
                 }
             }
-            walk_schema_and_validate(
+            if !walk_schema_and_validate(
                 node,
                 sub_schema,
                 root,
@@ -450,9 +531,13 @@ fn walk_schema_and_validate(
                 errors,
                 schema_definitions,
                 semantic_validators,
-            );
+            ) {
+                return false;
+            }
         }
     }
+
+    true
 }
 
 fn validate_semantics(root: &Value, registry: &FileRegistry, schema: &Value) -> Vec<String> {
@@ -469,7 +554,7 @@ fn validate_semantics(root: &Value, registry: &FileRegistry, schema: &Value) -> 
 
     let semantic_validators = register_semantic_validators();
 
-    walk_schema_and_validate(
+    if !walk_schema_and_validate(
         root,
         schema,
         root,
@@ -478,8 +563,9 @@ fn validate_semantics(root: &Value, registry: &FileRegistry, schema: &Value) -> 
         &mut errors,
         &definitions,
         &semantic_validators,
-    );
-
+    ) {
+        eprintln!("Something went wrong...");
+    }
     errors
 }
 
