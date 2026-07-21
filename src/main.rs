@@ -4,7 +4,11 @@ use std::collections::{HashMap, HashSet};
 use std::os::unix::process::ExitStatusExt;
 use std::path::{Path, PathBuf};
 use std::process::{Command, ExitStatus};
+use std::sync::OnceLock;
 use walkdir::WalkDir;
+
+/// Global verbosity level for semantic validation.
+static VERBOSE: OnceLock<u8> = OnceLock::new();
 
 /// Semantic validator for Supercell's .ui (TOML) files
 #[derive(Parser, Debug)]
@@ -170,7 +174,6 @@ fn validate_binding_ref(
     root: &Value,
     registry: &FileRegistry,
     path: &str,
-    verbosity: u8,
 ) -> Vec<String> {
     let binding_id = node.as_str().unwrap();
 
@@ -185,7 +188,7 @@ fn validate_binding_ref(
 
     if !bindings.contains(binding_id) {
         let mut error_message = format!("{path}: bindingId '{binding_id}' not found in 'bindings'");
-        if verbosity >= 1 {
+        if *VERBOSE.get().unwrap_or(&0) >= 1 {
             let available: Vec<&str> = bindings.iter().map(String::as_str).collect();
             error_message.push_str(&format!(" (available: {available:?})"));
         }
@@ -196,7 +199,7 @@ fn validate_binding_ref(
 }
 
 /// Semantic validators keyed by schema definition ref.
-type SemanticValidator = fn(&Value, &Value, &FileRegistry, &str, u8) -> Vec<String>;
+type SemanticValidator = fn(&Value, &Value, &FileRegistry, &str) -> Vec<String>;
 
 fn register_semantic_validators() -> HashMap<String, SemanticValidator> {
     let mut validators: HashMap<String, SemanticValidator> = HashMap::new();
@@ -259,7 +262,7 @@ fn walk_schema_and_validate(
                         // TODO: before walking to one of oneOf branch, validate that schema is
                         //  suitable for data.
                         if node.is_string() {
-                            let validator_errors = validator(node, root, registry, path, 0);
+                            let validator_errors = validator(node, root, registry, path);
                             errors.extend(validator_errors);
                         }
                     }
@@ -574,6 +577,7 @@ fn find_ui_files(root: &Path) -> Vec<PathBuf> {
 }
 
 fn run(cli: Cli) -> Result<i32> {
+    VERBOSE.set(cli.verbose).ok();
     let schema_path = Path::new("src/ui.schema.json");
     let schema = load_schema(schema_path)?;
     let mut registry = FileRegistry::default();
@@ -617,7 +621,7 @@ fn run(cli: Cli) -> Result<i32> {
 
                     // Schema validation (skipped if --skip-schema-validation is set)
                     let schema_valid = if cli.skip_schema_validation {
-                        if cli.verbose >= 1 {
+                        if cli.verbose >= 2 {
                             eprintln!("  Skipping schema validation: {}", ui_file.display());
                         }
                         true
