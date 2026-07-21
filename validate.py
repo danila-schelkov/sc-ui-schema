@@ -214,20 +214,6 @@ def _walk_schema_and_validate(
     """Recursively walk the schema tree, applying semantic validators
     whenever a $ref to a registered binding definition is encountered."""
 
-    # Handle arrays at the root level (e.g. set_text, move, replace)
-    if isinstance(node, list) and "items" in schema_node:
-        for i, item in enumerate(node):
-            item_path = f"{path}[{i}]" if path else f"[{i}]"
-            _walk_schema_and_validate(
-                item,
-                schema_node["items"],
-                root,
-                item_path,
-                errors,
-                schema_definitions,
-                registry,
-            )
-
     # Resolve $ref — call semantic validator if registered, then
     # always recurse into the referenced definition's properties.
     # Must come BEFORE the dict check since bindingId refs have string nodes.
@@ -250,10 +236,58 @@ def _walk_schema_and_validate(
             )
             return  # Resolved, skip further processing of $ref schema itself
 
+    # if path.endswith("uninteractive"):
+    #     raise Exception
+
+    if "items" in schema_node:
+        items = node if isinstance(node, list) else [node]
+        for i, item in enumerate(items):
+            item_path = f"{path}[{i}]" if path else f"[{i}]"
+            _walk_schema_and_validate(
+                item,
+                schema_node["items"],
+                root,
+                item_path,
+                errors,
+                schema_definitions,
+                registry,
+            )
+
+    if "oneOf" in schema_node:
+        for sub_schema in schema_node["oneOf"]:
+            # NOTE: it is temporary solution, am I right?
+
+            # Resolve $ref to check type compatibility with node.
+            # This prevents e.g. calling bindingId validator with a dict node
+            # when childReferenceOrId oneOf contains both childReference and bindingId.
+            target_type = None
+            if "$ref" in sub_schema:
+                ref = sub_schema["$ref"]
+                if ref.startswith("#/definitions/"):
+                    def_name = ref.split("/")[-1]
+                    target_type = schema_definitions.get(def_name, {}).get("type")
+            else:
+                target_type = sub_schema.get("type")
+
+            # Skip oneOf branches that don't match the node's actual type.
+            if isinstance(node, dict) and target_type == "string":
+                continue
+            if not isinstance(node, dict) and target_type == "object":
+                continue
+
+            _walk_schema_and_validate(
+                node,
+                sub_schema,
+                root,
+                path,
+                errors,
+                schema_definitions,
+                registry,
+            )
+
     if not isinstance(node, dict):
         return
 
-    # Recurse into properties / additionalProperties / items / allOf / oneOf
     if "properties" in schema_node:
         for prop_name, prop_schema in schema_node["properties"].items():
             child = node.get(prop_name)
@@ -302,20 +336,6 @@ def _walk_schema_and_validate(
                     registry,
                 )
 
-    if "items" in schema_node:
-        items = node if isinstance(node, list) else [node]
-        for i, item in enumerate(items):
-            item_path = f"{path}[{i}]" if path else f"[{i}]"
-            _walk_schema_and_validate(
-                item,
-                schema_node["items"],
-                root,
-                item_path,
-                errors,
-                schema_definitions,
-                registry,
-            )
-
     if "allOf" in schema_node:
         for sub_schema in schema_node["allOf"]:
             # For non-$ref subschemas, extract the matching property value
@@ -349,53 +369,7 @@ def _walk_schema_and_validate(
                 registry,
             )
 
-    if "oneOf" in schema_node:
-        for sub_schema in schema_node["oneOf"]:
-            # NOTE: it is temporary solution, am I right?
-
-            # Resolve $ref to check type compatibility with node.
-            # This prevents e.g. calling bindingId validator with a dict node
-            # when childReferenceOrId oneOf contains both childReference and bindingId.
-            target_type = None
-            if "$ref" in sub_schema:
-                ref = sub_schema["$ref"]
-                if ref.startswith("#/definitions/"):
-                    def_name = ref.split("/")[-1]
-                    target_type = schema_definitions.get(def_name, {}).get("type")
-            else:
-                target_type = sub_schema.get("type")
-
-            # Skip oneOf branches that don't match the node's actual type.
-            if isinstance(node, dict) and target_type == "string":
-                continue
-            if not isinstance(node, dict) and target_type == "object":
-                continue
-
-            _walk_schema_and_validate(
-                node,
-                sub_schema,
-                root,
-                path,
-                errors,
-                schema_definitions,
-                registry,
-            )
-
-    # Recurse into nested objects regardless
-    if isinstance(node, dict):
-        for key, child in node.items():
-            if key.startswith("$"):
-                continue
-            child_path = f"{path}.{key}" if path else key
-            _walk_schema_and_validate(
-                child,
-                {},
-                root,
-                child_path,
-                errors,
-                schema_definitions,
-                registry,
-            )
+    # TODO: handle unevaluatedProperties
 
 
 def validate_semantics(root: dict, registry: FileRegistry | None = None) -> list[str]:

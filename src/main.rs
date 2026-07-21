@@ -227,30 +227,6 @@ fn walk_schema_and_validate(
     schema_definitions: &HashMap<String, Value>,
     semantic_validators: &HashMap<String, SemanticValidator>,
 ) {
-    // Handle arrays at the root level (e.g. set_text, move, replace)
-    if let Some(items) = node.as_array() {
-        if let Some(items_schema) = schema_node.get("items") {
-            for (i, item) in items.iter().enumerate() {
-                let item_path = if path.is_empty() {
-                    format!("[{i}]")
-                } else {
-                    format!("{path}[{i}]")
-                };
-                walk_schema_and_validate(
-                    item,
-                    items_schema,
-                    root,
-                    registry,
-                    &item_path,
-                    errors,
-                    schema_definitions,
-                    semantic_validators,
-                );
-            }
-        }
-        return;
-    }
-
     // Resolve $ref — call semantic validator if registered, then
     // always recurse into the referenced definition's properties.
     // Must come BEFORE the dict check since bindingId refs have string nodes.
@@ -286,11 +262,78 @@ fn walk_schema_and_validate(
         }
     }
 
+    // TODO: handle unevaluatedProperties
+
+    if let Some(items_schema) = schema_node.get("items") {
+        let items: Vec<&Value> = if node.is_array() {
+            node.as_array().unwrap().iter().collect()
+        } else {
+            vec![node]
+        };
+        for (i, item) in items.iter().enumerate() {
+            let item_path = if path.is_empty() {
+                format!("[{i}]")
+            } else {
+                format!("{path}[{i}]")
+            };
+            walk_schema_and_validate(
+                item,
+                items_schema,
+                root,
+                registry,
+                &item_path,
+                errors,
+                schema_definitions,
+                semantic_validators,
+            );
+        }
+    }
+
+    // oneOf
+    if let Some(one_of) = schema_node.get("oneOf").and_then(|v| v.as_array()) {
+        for sub_schema in one_of {
+            let target_type = if let Some(ref_val) = sub_schema.get("$ref") {
+                if let Some(ref_str) = ref_val.as_str() {
+                    if ref_str.starts_with("#/definitions/") {
+                        let def_name = ref_str.split('/').last().unwrap_or("");
+                        schema_definitions
+                            .get(def_name)
+                            .and_then(|v| v.get("type"))
+                            .and_then(|v| v.as_str())
+                    } else {
+                        None
+                    }
+                } else {
+                    None
+                }
+            } else {
+                sub_schema.get("type").and_then(|v| v.as_str())
+            };
+
+            match (target_type, node.is_object()) {
+                (Some("string"), true) => continue,
+                (Some("object"), false) => continue,
+                _ => {}
+            }
+
+            walk_schema_and_validate(
+                node,
+                sub_schema,
+                root,
+                registry,
+                path,
+                errors,
+                schema_definitions,
+                semantic_validators,
+            );
+        }
+    }
+
     let Some(obj) = node.as_object() else {
         return;
     };
 
-    // Recurse into properties / additionalProperties / items / allOf / oneOf
+    // Recurse into properties
     if let Some(properties) = schema_node.get("properties").and_then(|v| v.as_object()) {
         for (prop_name, prop_schema) in properties {
             if let Some(child) = obj.get(prop_name) {
@@ -368,32 +411,6 @@ fn walk_schema_and_validate(
         }
     }
 
-    // items (for object-valued items)
-    if let Some(items_schema) = schema_node.get("items") {
-        let items: Vec<&Value> = if node.is_array() {
-            node.as_array().unwrap().iter().collect()
-        } else {
-            vec![node]
-        };
-        for (i, item) in items.iter().enumerate() {
-            let item_path = if path.is_empty() {
-                format!("[{i}]")
-            } else {
-                format!("{path}[{i}]")
-            };
-            walk_schema_and_validate(
-                item,
-                items_schema,
-                root,
-                registry,
-                &item_path,
-                errors,
-                schema_definitions,
-                semantic_validators,
-            );
-        }
-    }
-
     // allOf
     if let Some(all_of) = schema_node.get("allOf").and_then(|v| v.as_array()) {
         for sub_schema in all_of {
@@ -432,69 +449,6 @@ fn walk_schema_and_validate(
                 semantic_validators,
             );
         }
-    }
-
-    // oneOf
-    if let Some(one_of) = schema_node.get("oneOf").and_then(|v| v.as_array()) {
-        for sub_schema in one_of {
-            // Resolve $ref to check type compatibility with node.
-            // This prevents e.g. calling bindingId validator with a dict node
-            // when childReferenceOrId oneOf contains both childReference and bindingId.
-            let target_type = if let Some(ref_val) = sub_schema.get("$ref") {
-                if let Some(ref_str) = ref_val.as_str() {
-                    if ref_str.starts_with("#/definitions/") {
-                        let def_name = ref_str.split('/').last().unwrap_or("");
-                        schema_definitions
-                            .get(def_name)
-                            .and_then(|v| v.get("type"))
-                            .and_then(|v| v.as_str())
-                    } else {
-                        None
-                    }
-                } else {
-                    None
-                }
-            } else {
-                sub_schema.get("type").and_then(|v| v.as_str())
-            };
-
-            // Skip oneOf branches that don't match the node's actual type.
-            match (target_type, node.is_object()) {
-                (Some("string"), true) => continue,
-                (Some("object"), false) => continue,
-                _ => {}
-            }
-
-            walk_schema_and_validate(
-                node,
-                sub_schema,
-                root,
-                registry,
-                path,
-                errors,
-                schema_definitions,
-                semantic_validators,
-            );
-        }
-    }
-
-    // Recurse into nested objects regardless
-    for (key, child) in obj.iter() {
-        let child_path = if path.is_empty() {
-            key.to_string()
-        } else {
-            format!("{path}.{key}")
-        };
-        walk_schema_and_validate(
-            child,
-            &Value::Object(serde_json::Map::new()),
-            root,
-            registry,
-            &child_path,
-            errors,
-            schema_definitions,
-            semantic_validators,
-        );
     }
 }
 
