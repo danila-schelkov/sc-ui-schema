@@ -79,6 +79,9 @@ def _resolve_bindings_for_file(
 
     collected: set[BindingId] = set()
 
+    # An empty string path — reference to self
+    collected.add("")
+
     # 1.1 Direct bindings from the root file
     root_bindings: dict[BindingId, Any] | None = root.get("bindings")
     if root_bindings:

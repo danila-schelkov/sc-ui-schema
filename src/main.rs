@@ -87,6 +87,9 @@ fn resolve_bindings_for_file(
 ) -> HashSet<BindingId> {
     let mut collected: HashSet<BindingId> = HashSet::new();
 
+    // An empty string path — reference to self
+    collected.insert("".to_string());
+
     // Direct bindings from the root file
     if let Some(bindings) = root.get("bindings").and_then(|v| v.as_object()) {
         collected.extend(bindings.keys().cloned());
@@ -510,10 +513,7 @@ fn find_ui_files(paths: &[PathBuf]) -> Vec<PathBuf> {
             if path.extension().is_some_and(|ext| ext == "ui") {
                 ui_files.push(path);
             } else {
-                eprintln!(
-                    "Warning: {} is not a .ui file, skipping.",
-                    path.display()
-                );
+                eprintln!("Warning: {} is not a .ui file, skipping.", path.display());
             }
         } else if path.is_dir() {
             for entry in WalkDir::new(&path).into_iter().filter_map(|e| e.ok()) {
