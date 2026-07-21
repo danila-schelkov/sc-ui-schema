@@ -219,7 +219,6 @@ fn walk_schema_and_validate(
     errors: &mut Vec<String>,
     schema_definitions: &HashMap<String, Value>,
     semantic_validators: &HashMap<String, SemanticValidator>,
-    mut seen_refs: HashSet<String>,
 ) {
     // Handle arrays at the root level (e.g. set_text, move, replace)
     if let Some(items) = node.as_array() {
@@ -239,7 +238,6 @@ fn walk_schema_and_validate(
                     errors,
                     schema_definitions,
                     semantic_validators,
-                    seen_refs.clone(),
                 );
             }
         }
@@ -254,17 +252,15 @@ fn walk_schema_and_validate(
             if ref_str.starts_with("#/definitions/") {
                 if let Some(referenced) = schema_definitions.get(ref_str) {
                     if let Some(&validator) = semantic_validators.get(ref_str) {
-                        if seen_refs.insert(ref_str.to_string()) {
-                            // Only call the validator if the node is a string.
-                            // Non-string nodes (dicts, arrays) are silently skipped,
-                            // matching the Python walker's oneOf type filtering.
+                        // Only call the validator if the node is a string.
+                        // Non-string nodes (dicts, arrays) are silently skipped,
+                        // matching the Python walker's oneOf type filtering.
 
-                            // TODO: before walking to one of oneOf branch, validate that schema is
-                            //  suitable for data.
-                            if node.is_string() {
-                                let validator_errors = validator(node, root, registry, path, 0);
-                                errors.extend(validator_errors);
-                            }
+                        // TODO: before walking to one of oneOf branch, validate that schema is
+                        //  suitable for data.
+                        if node.is_string() {
+                            let validator_errors = validator(node, root, registry, path, 0);
+                            errors.extend(validator_errors);
                         }
                     }
                     walk_schema_and_validate(
@@ -276,7 +272,6 @@ fn walk_schema_and_validate(
                         errors,
                         schema_definitions,
                         semantic_validators,
-                        seen_refs.clone(),
                     );
                     return;
                 }
@@ -306,7 +301,6 @@ fn walk_schema_and_validate(
                     errors,
                     schema_definitions,
                     semantic_validators,
-                    seen_refs.clone(),
                 );
             }
         }
@@ -332,7 +326,6 @@ fn walk_schema_and_validate(
                 errors,
                 schema_definitions,
                 semantic_validators,
-                seen_refs.clone(),
             );
         }
     }
@@ -362,7 +355,6 @@ fn walk_schema_and_validate(
                         errors,
                         schema_definitions,
                         semantic_validators,
-                        seen_refs.clone(),
                     );
                 }
             }
@@ -391,7 +383,6 @@ fn walk_schema_and_validate(
                 errors,
                 schema_definitions,
                 semantic_validators,
-                seen_refs.clone(),
             );
         }
     }
@@ -419,7 +410,6 @@ fn walk_schema_and_validate(
                         errors,
                         schema_definitions,
                         semantic_validators,
-                        seen_refs.clone(),
                     );
                     continue;
                 }
@@ -433,7 +423,6 @@ fn walk_schema_and_validate(
                 errors,
                 schema_definitions,
                 semantic_validators,
-                seen_refs.clone(),
             );
         }
     }
@@ -478,7 +467,6 @@ fn walk_schema_and_validate(
                 errors,
                 schema_definitions,
                 semantic_validators,
-                seen_refs.clone(),
             );
         }
     }
@@ -499,7 +487,6 @@ fn walk_schema_and_validate(
             errors,
             schema_definitions,
             semantic_validators,
-            seen_refs.clone(),
         );
     }
 }
@@ -517,7 +504,6 @@ fn validate_semantics(root: &Value, registry: &FileRegistry, schema: &Value) -> 
         .collect();
 
     let semantic_validators = register_semantic_validators();
-    let seen_refs: HashSet<String> = HashSet::new();
 
     // Walk properties at the root level
     if let Some(properties) = schema.get("properties").and_then(|v| v.as_object()) {
@@ -532,7 +518,6 @@ fn validate_semantics(root: &Value, registry: &FileRegistry, schema: &Value) -> 
                     &mut errors,
                     &definitions,
                     &semantic_validators,
-                    seen_refs.clone(),
                 );
             }
         }
@@ -550,7 +535,6 @@ fn validate_semantics(root: &Value, registry: &FileRegistry, schema: &Value) -> 
                 &mut errors,
                 &definitions,
                 &semantic_validators,
-                seen_refs.clone(),
             );
         }
     }

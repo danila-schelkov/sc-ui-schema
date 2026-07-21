@@ -137,9 +137,9 @@ def _resolve_bindings_for_file(
             if referenced_file is not None:
                 collected.update(
                     _resolve_bindings_for_file(
-                        referenced_file, 
-                        registry, 
-                        allow_asset_id_list  # Should we allow it?
+                        referenced_file,
+                        registry,
+                        allow_asset_id_list,  # Should we allow it?
                     )
                 )
             else:
@@ -209,12 +209,9 @@ def _walk_schema_and_validate(
     path: str,
     errors: list[str],
     schema_definitions: dict[str, dict],
-    seen_refs: set[str] | None = None,
 ) -> None:
     """Recursively walk the schema tree, applying semantic validators
     whenever a $ref to a registered binding definition is encountered."""
-    if seen_refs is None:
-        seen_refs = set()
 
     # Handle arrays at the root level (e.g. set_text, move, replace)
     if isinstance(node, list) and "items" in schema_node:
@@ -227,7 +224,6 @@ def _walk_schema_and_validate(
                 item_path,
                 errors,
                 schema_definitions,
-                seen_refs.copy(),
             )
 
     # Resolve $ref — call semantic validator if registered, then
@@ -238,8 +234,7 @@ def _walk_schema_and_validate(
         if ref.startswith("#/definitions/"):
             def_name = ref.split("/")[-1]
             referenced = schema_definitions.get(def_name, {})
-            if ref in _semantic_validators and ref not in seen_refs:
-                seen_refs.add(ref)
+            if ref in _semantic_validators:
                 validator = _semantic_validators[ref]
                 validator(node, root, path, errors)
             _walk_schema_and_validate(
@@ -249,7 +244,6 @@ def _walk_schema_and_validate(
                 path,
                 errors,
                 schema_definitions,
-                seen_refs.copy(),
             )
             return  # Resolved, skip further processing of $ref schema itself
 
@@ -269,7 +263,6 @@ def _walk_schema_and_validate(
                     child_path,
                     errors,
                     schema_definitions,
-                    seen_refs.copy(),
                 )
 
     if "additionalProperties" in schema_node:
@@ -284,7 +277,6 @@ def _walk_schema_and_validate(
                 child_path,
                 errors,
                 schema_definitions,
-                seen_refs.copy(),
             )
 
     if "patternProperties" in schema_node:
@@ -302,7 +294,6 @@ def _walk_schema_and_validate(
                     child_path,
                     errors,
                     schema_definitions,
-                    seen_refs.copy(),
                 )
 
     if "items" in schema_node:
@@ -316,7 +307,6 @@ def _walk_schema_and_validate(
                 item_path,
                 errors,
                 schema_definitions,
-                seen_refs.copy(),
             )
 
     if "allOf" in schema_node:
@@ -339,7 +329,6 @@ def _walk_schema_and_validate(
                         path,
                         errors,
                         schema_definitions,
-                        seen_refs.copy(),
                     )
                     continue
             _walk_schema_and_validate(
@@ -349,7 +338,6 @@ def _walk_schema_and_validate(
                 path,
                 errors,
                 schema_definitions,
-                seen_refs.copy(),
             )
 
     if "oneOf" in schema_node:
@@ -381,7 +369,6 @@ def _walk_schema_and_validate(
                 path,
                 errors,
                 schema_definitions,
-                seen_refs.copy(),
             )
 
     # Recurse into nested objects regardless
@@ -397,7 +384,6 @@ def _walk_schema_and_validate(
                 child_path,
                 errors,
                 schema_definitions,
-                seen_refs.copy(),
             )
 
 
@@ -432,7 +418,6 @@ def validate_semantics(root: dict, registry: FileRegistry | None = None) -> list
             "",
             errors,
             definitions,
-            seen_refs=set(),
         )
     return errors
 
