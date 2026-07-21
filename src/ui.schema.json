@@ -117,6 +117,9 @@
         "bindingId": {
             "type": "string"
         },
+        "animationKey": {
+            "type": "string"
+        },
         "binding": {
             "type": "object",
             "properties": {
@@ -201,22 +204,28 @@
                     "description": "Since BSv68"
                 },
                 "next_animation": {
-                    "type": "string"
+                    "$ref": "#/definitions/animationKey"
                 },
                 "animation_next": {
-                    "type": "string"
+                    "$ref": "#/definitions/animationKey"
                 },
                 "next": {
-                    "type": "string"
+                    "$ref": "#/definitions/animationKey"
                 },
                 "also_play": {
-                    "type": [
-                        "string",
-                        "array"
-                    ],
-                    "items": {
-                        "type": "string"
-                    }
+                    "oneOf": [
+                        {
+                            "$ref": "#/definitions/animationKey"
+                        },
+                        {
+                            "type": [
+                                "array"
+                            ],
+                            "items": {
+                                "$ref": "#/definitions/animationKey"
+                            }
+                        }
+                    ]
                 }
             },
             "unevaluatedProperties": false

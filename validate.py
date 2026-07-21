@@ -58,12 +58,8 @@ class FileRegistry:
             self.register(file_id, data)
 
 
-# Global registry, shared across all semantic validation runs
-_registry = FileRegistry()
-
-
 def _resolve_bindings_for_file(
-    root: dict, registry: FileRegistry | None = None, allow_asset_id_list: bool = True
+    root: dict, registry: FileRegistry, allow_asset_id_list: bool = True
 ) -> set[BindingId]:
     """Resolve all bindings for a root .ui file.
 
@@ -74,8 +70,6 @@ def _resolve_bindings_for_file(
 
     Returns a merged dict of all binding IDs -> values.
     """
-    if registry is None:
-        registry = _registry
 
     collected: set[BindingId] = set()
 
@@ -159,6 +153,57 @@ def _resolve_bindings_for_file(
 
 _verbosity = 0
 
+type AnimationKey = str
+
+
+def _resolve_animations_for_file(
+    root: dict, _registry: FileRegistry | None = None
+) -> set[AnimationKey]:
+    """Resolve all bindings for a root .ui file.
+
+    This collects bindings from:
+    1. The root file's own 'bindings' section
+    2. All files referenced via 'copy_configs'
+    3. All files sharing the same 'sc_file_asset_id_list' (AssetIdList source)
+
+    Returns a merged dict of all binding IDs -> values.
+    """
+
+    collected: set[BindingId] = set()
+    root_animations: dict[BindingId, Any] | None = root.get(
+        "animation", root.get("animations")
+    )
+    if root_animations:
+        collected.update(root_animations.keys())
+
+    return collected
+
+
+def _validate_animation_ref(
+    node: AnimationKey, root: dict, path: str, errors: list[str], registry: FileRegistry
+) -> None:
+    """Validate that a bindingId value (string) exists in root's bindings.
+
+    When node is a string (direct bindingId ref), use it directly.
+    When node is a dict (binding wrapper), extract the binding property value.
+
+    Also checks bindings resolved from copy_configs references.
+    """
+    animation_key = node
+
+    # Resolve all bindings (direct + copy_configs)
+    animations = _resolve_animations_for_file(root, registry)
+    if not animations:
+        errors.append(
+            f"{path}: animationKey '{animation_key}' references, but no 'animations' section exists in root"
+        )
+        return
+    if animation_key not in animations:
+        error_message = f"{path}: bindingId '{animation_key}' not found in 'animations'"
+        if _verbosity >= 1:
+            error_message += f" (available: {animations})"
+        errors.append(error_message)
+
 
 def _validate_binding_ref(
     node: BindingId, root: dict, path: str, errors: list[str], registry: FileRegistry
@@ -202,7 +247,36 @@ def _register_semantic_validator(ref_key: str, validator_fn) -> None:
 # First argument type must always be the same as definition type
 _semantic_validators: dict[str, Any] = {
     "#/definitions/bindingId": _validate_binding_ref,
+    "#/definitions/animationKey": _validate_animation_ref,
 }
+
+
+def _is_valid_type(node: Any, type: str | None) -> bool:
+    match type:
+        case "integer":
+            return isinstance(node, int)
+        case "number":
+            # Should also check for int?
+            return isinstance(node, float) or isinstance(node, int)
+        case "boolean":
+            return isinstance(node, bool)
+        case "string":
+            return isinstance(node, str)
+        case "object":
+            return isinstance(node, dict)
+        case "array":
+            return isinstance(node, list)
+        case [*types]:
+            return any(_is_valid_type(node, type) for type in types)
+        case None:
+            pass
+        case unexpected_type:
+            click.echo(
+                f"Got an unexpected type: {unexpected_type}",
+                err=True,
+            )
+
+    return True
 
 
 def _walk_schema_and_validate(
@@ -213,7 +287,7 @@ def _walk_schema_and_validate(
     errors: list[str],
     schema_definitions: dict[str, dict],
     registry: FileRegistry | None = None,
-) -> None:
+) -> bool:
     """Recursively walk the schema tree, applying semantic validators
     whenever a $ref to a registered binding definition is encountered."""
 
@@ -225,10 +299,17 @@ def _walk_schema_and_validate(
         if ref.startswith("#/definitions/"):
             def_name = ref.split("/")[-1]
             referenced = schema_definitions.get(def_name, {})
+
+            # finish oneOf branching if wrong type.
+            referenced_type = referenced.get("type")
+            if not _is_valid_type(node, referenced_type):
+                return False
+
             if ref in _semantic_validators:
                 validator = _semantic_validators[ref]
                 validator(node, root, path, errors, registry)
-            _walk_schema_and_validate(
+            # Resolved, skip further processing of $ref schema itself
+            return _walk_schema_and_validate(
                 node,
                 referenced,
                 root,
@@ -237,16 +318,12 @@ def _walk_schema_and_validate(
                 schema_definitions,
                 registry,
             )
-            return  # Resolved, skip further processing of $ref schema itself
-
-    # if path.endswith("uninteractive"):
-    #     raise Exception
 
     if "items" in schema_node:
         items = node if isinstance(node, list) else [node]
         for i, item in enumerate(items):
             item_path = f"{path}[{i}]" if path else f"[{i}]"
-            _walk_schema_and_validate(
+            if not _walk_schema_and_validate(
                 item,
                 schema_node["items"],
                 root,
@@ -254,49 +331,40 @@ def _walk_schema_and_validate(
                 errors,
                 schema_definitions,
                 registry,
-            )
+            ):
+                return False
 
     if "oneOf" in schema_node:
         for sub_schema in schema_node["oneOf"]:
-            # NOTE: it is temporary solution, am I right?
-
-            # Resolve $ref to check type compatibility with node.
-            # This prevents e.g. calling bindingId validator with a dict node
-            # when childReferenceOrId oneOf contains both childReference and bindingId.
-            target_type = None
-            if "$ref" in sub_schema:
-                ref = sub_schema["$ref"]
-                if ref.startswith("#/definitions/"):
-                    def_name = ref.split("/")[-1]
-                    target_type = schema_definitions.get(def_name, {}).get("type")
-            else:
-                target_type = sub_schema.get("type")
-
-            # Skip oneOf branches that don't match the node's actual type.
-            if isinstance(node, dict) and target_type == "string":
-                continue
-            if not isinstance(node, dict) and target_type == "object":
+            sub_schema_type = sub_schema.get("type")
+            if not _is_valid_type(node, sub_schema_type):
                 continue
 
-            _walk_schema_and_validate(
+            one_of_errors: list[str] = []
+            result = _walk_schema_and_validate(
                 node,
                 sub_schema,
                 root,
                 path,
-                errors,
+                one_of_errors,
                 schema_definitions,
                 registry,
             )
+            if result:
+                errors.extend(one_of_errors)
+                break
 
+    # NOTE: values themselves
     if not isinstance(node, dict):
-        return
+        return True
 
-    if "properties" in schema_node:
-        for prop_name, prop_schema in schema_node["properties"].items():
+    properties: dict[str, Any] | None = schema_node.get("properties")
+    if properties is not None:
+        for prop_name, prop_schema in properties.items():
             child = node.get(prop_name)
             if child is not None:
                 child_path = f"{path}.{prop_name}" if path else prop_name
-                _walk_schema_and_validate(
+                if not _walk_schema_and_validate(
                     child,
                     prop_schema,
                     root,
@@ -304,22 +372,31 @@ def _walk_schema_and_validate(
                     errors,
                     schema_definitions,
                     registry,
-                )
+                ):
+                    return False
 
     if "additionalProperties" in schema_node:
+        additional_properties_schema = schema_node["additionalProperties"]
+
         for key, child in node.items():
             if key.startswith("$"):
                 continue
+
+            # TODO: handle key in any of anyOf, or even maintain evaluated_properties keys
+            if properties is not None and key in properties:
+                continue
+
             child_path = f"{path}.{key}" if path else key
-            _walk_schema_and_validate(
+            if not _walk_schema_and_validate(
                 child,
-                schema_node["additionalProperties"],
+                additional_properties_schema,
                 root,
                 child_path,
                 errors,
                 schema_definitions,
                 registry,
-            )
+            ):
+                return False
 
     if "patternProperties" in schema_node:
         for pattern_str, properties_schema in schema_node["patternProperties"].items():
@@ -329,7 +406,7 @@ def _walk_schema_and_validate(
                     continue
 
                 child_path = f"{path}.{key}" if path else key
-                _walk_schema_and_validate(
+                if not _walk_schema_and_validate(
                     child,
                     properties_schema,
                     root,
@@ -337,7 +414,8 @@ def _walk_schema_and_validate(
                     errors,
                     schema_definitions,
                     registry,
-                )
+                ):
+                    return False
 
     if "allOf" in schema_node:
         for sub_schema in schema_node["allOf"]:
@@ -352,7 +430,7 @@ def _walk_schema_and_validate(
                         sub_node = val
                         break
                 if sub_node is not None:
-                    _walk_schema_and_validate(
+                    if not _walk_schema_and_validate(
                         sub_node,
                         sub_schema,
                         root,
@@ -360,9 +438,10 @@ def _walk_schema_and_validate(
                         errors,
                         schema_definitions,
                         registry,
-                    )
+                    ):
+                        return False
                     continue
-            _walk_schema_and_validate(
+            if not _walk_schema_and_validate(
                 node,
                 sub_schema,
                 root,
@@ -370,9 +449,11 @@ def _walk_schema_and_validate(
                 errors,
                 schema_definitions,
                 registry,
-            )
+            ):
+                return False
 
     # TODO: handle unevaluatedProperties
+    return True
 
 
 def validate_semantics(root: dict, registry: FileRegistry | None = None) -> list[str]:
@@ -385,7 +466,7 @@ def validate_semantics(root: dict, registry: FileRegistry | None = None) -> list
     errors: list[str] = []
     schema = _load_schema()
     definitions = schema.get("definitions", {})
-    _walk_schema_and_validate(
+    if not _walk_schema_and_validate(
         root,
         schema,
         root,
@@ -393,7 +474,9 @@ def validate_semantics(root: dict, registry: FileRegistry | None = None) -> list
         errors,
         definitions,
         registry,
-    )
+    ):
+        # This kind of situation should not happen
+        click.echo("Something went wrong...", err=True)
     return errors
 
 
@@ -457,10 +540,13 @@ def main(verbose: int, paths: tuple[str, ...], skip_schema_validation: bool) -> 
 
     ui_files = find_ui_files((Path(p) for p in paths) if paths else (Path("."),))
 
+    # Global registry, shared across all semantic validation runs
+    registry = FileRegistry()
+
     # Phase 1: Register all .ui files in the registry
     for ui_file in ui_files:
         try:
-            _registry.register_from_path(ui_file)
+            registry.register_from_path(ui_file)
         except Exception as e:
             click.echo(f"Warning: Could not register {ui_file}: {e}", err=True)
 
@@ -494,7 +580,7 @@ def main(verbose: int, paths: tuple[str, ...], skip_schema_validation: bool) -> 
 
             if schema_valid:
                 # Semantic validation
-                semantic_errors = validate_semantics(data, _registry)
+                semantic_errors = validate_semantics(data, registry)
                 if semantic_errors:
                     click.echo(f"  Semantic errors in {ui_file}:")
                     for err in semantic_errors:
